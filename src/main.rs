@@ -8,7 +8,7 @@ use bevy::{
         },
     },
 };
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy_egui::{EguiContexts, EguiPlugin, egui};
 use rand::prelude::*;
 use std::fs;
 use std::path::Path;
@@ -46,7 +46,11 @@ impl Default for InferenceResult {
 // --- Components ---
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
-enum Species { Snapper, Kingfish, Cod }
+enum Species {
+    Snapper,
+    Kingfish,
+    Cod,
+}
 
 impl Species {
     fn preferred_depth_range(&self) -> (f32, f32) {
@@ -64,15 +68,23 @@ impl Species {
         }
     }
     fn target_strength(&self) -> f32 {
-        match self { Species::Kingfish => -35.0, Species::Snapper => -42.0, Species::Cod => -38.0 }
+        match self {
+            Species::Kingfish => -35.0,
+            Species::Snapper => -42.0,
+            Species::Cod => -38.0,
+        }
     }
 }
 
 #[derive(Component)]
-struct AcousticProfile { target_strength: f32 }
+struct AcousticProfile {
+    target_strength: f32,
+}
 
 #[derive(Component)]
-struct Boid { velocity: Vec3 }
+struct Boid {
+    velocity: Vec3,
+}
 
 #[derive(Component)]
 struct MainCamera;
@@ -144,17 +156,23 @@ fn main() {
         .init_resource::<CameraSettings>()
         .init_resource::<DatasetExporter>()
         .init_resource::<InferenceResult>()
-        .add_systems(Startup, (setup_render_textures, setup_scene, setup_cameras).chain())
-        .add_systems(Update, (
-            boid_movement_system,
-            boundary_wrapping_system,
-            echosounder_ping_system,
-            camera_controller_system,
-            ui_tiled_windows_system,
-            dataset_exporter_system,
-            model_inference_system,
-            set_camera_viewports,
-        ))
+        .add_systems(
+            Startup,
+            (setup_render_textures, setup_scene, setup_cameras).chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                boid_movement_system,
+                boundary_wrapping_system,
+                echosounder_ping_system,
+                camera_controller_system,
+                ui_tiled_windows_system,
+                dataset_exporter_system,
+                model_inference_system,
+                set_camera_viewports,
+            ),
+        )
         .run();
 }
 
@@ -162,12 +180,19 @@ fn main() {
 
 fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     // 1. Echogram Texture
-    let echo_size = Extent3d { width: ECHOGRAM_WIDTH, height: ECHOGRAM_HEIGHT, ..default() };
+    let echo_size = Extent3d {
+        width: ECHOGRAM_WIDTH,
+        height: ECHOGRAM_HEIGHT,
+        ..default()
+    };
     let mut echo_data = vec![0; (ECHOGRAM_WIDTH * ECHOGRAM_HEIGHT * 4) as usize];
     for y in 0..ECHOGRAM_HEIGHT {
         for x in 0..ECHOGRAM_WIDTH {
             let i = ((y * ECHOGRAM_WIDTH + x) * 4) as usize;
-            echo_data[i] = 0; echo_data[i+1] = 5; echo_data[i+2] = 20; echo_data[i+3] = 255;
+            echo_data[i] = 0;
+            echo_data[i + 1] = 5;
+            echo_data[i + 2] = 20;
+            echo_data[i + 3] = 255;
         }
     }
     let echo_image = Image {
@@ -178,7 +203,9 @@ fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image
             format: TextureFormat::Rgba8UnormSrgb,
             mip_level_count: 1,
             sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::RENDER_ATTACHMENT,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
         data: echo_data,
@@ -187,7 +214,11 @@ fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image
     let echo_handle = images.add(echo_image);
 
     // 2. Bird's Eye Render Target
-    let bird_size = Extent3d { width: BIRD_EYE_WIDTH, height: BIRD_EYE_HEIGHT, ..default() };
+    let bird_size = Extent3d {
+        width: BIRD_EYE_WIDTH,
+        height: BIRD_EYE_HEIGHT,
+        ..default()
+    };
     let bird_image = Image {
         texture_descriptor: TextureDescriptor {
             label: Some("Bird Eye Texture"),
@@ -196,7 +227,9 @@ fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image
             format: TextureFormat::Rgba8UnormSrgb,
             mip_level_count: 1,
             sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_SRC,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::RENDER_ATTACHMENT
+                | TextureUsages::COPY_SRC,
             view_formats: &[],
         },
         data: vec![0; (BIRD_EYE_WIDTH * BIRD_EYE_HEIGHT * 4) as usize],
@@ -219,20 +252,32 @@ fn setup_scene(
         let x = i as f32 * 4.0;
         commands.spawn((
             Mesh3d(meshes.add(Cuboid::new(0.05, 0.05, TANK_SIZE.z))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.2, 0.2, 0.4).into(), unlit: true, ..default() })),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.2, 0.2, 0.4),
+                unlit: true,
+                ..default()
+            })),
             Transform::from_xyz(x, -TANK_SIZE.y / 2.0, 0.0),
         ));
         let z = i as f32 * 4.0;
         commands.spawn((
             Mesh3d(meshes.add(Cuboid::new(TANK_SIZE.x, 0.05, 0.05))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: Color::srgb(0.2, 0.2, 0.4).into(), unlit: true, ..default() })),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::srgb(0.2, 0.2, 0.4),
+                unlit: true,
+                ..default()
+            })),
             Transform::from_xyz(0.0, -TANK_SIZE.y / 2.0, z),
         ));
     }
 
     let mut rng = thread_rng();
     for _ in 0..FISH_COUNT {
-        let species = match rng.gen_range(0..3) { 0 => Species::Kingfish, 1 => Species::Snapper, _ => Species::Cod };
+        let species = match rng.gen_range(0..3) {
+            0 => Species::Kingfish,
+            1 => Species::Snapper,
+            _ => Species::Cod,
+        };
         let (min_y, max_y) = species.preferred_depth_range();
         let pos = Vec3::new(
             rng.gen_range(-TANK_SIZE.x / 2.0..TANK_SIZE.x / 2.0),
@@ -242,16 +287,38 @@ fn setup_scene(
 
         commands.spawn((
             Mesh3d(meshes.add(Capsule3d::new(0.1, 0.3))),
-            MeshMaterial3d(materials.add(StandardMaterial { base_color: species.color().into(), unlit: false, emissive: species.color().into(), ..default() })),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: species.color().into(),
+                unlit: false,
+                emissive: species.color().into(),
+                ..default()
+            })),
             Transform::from_translation(pos),
             species,
-            AcousticProfile { target_strength: species.target_strength() },
-            Boid { velocity: Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0)).normalize() * 2.0 },
+            AcousticProfile {
+                target_strength: species.target_strength(),
+            },
+            Boid {
+                velocity: Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0))
+                    .normalize()
+                    * 2.0,
+            },
         ));
     }
 
-    commands.spawn((PointLight { intensity: 1_000_000.0, range: 100.0, shadows_enabled: true, ..default() }, Transform::from_xyz(0.0, 20.0, 0.0)));
-    commands.insert_resource(AmbientLight { color: Color::srgb(0.1, 0.1, 0.2), brightness: 200.0 });
+    commands.spawn((
+        PointLight {
+            intensity: 1_000_000.0,
+            range: 100.0,
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 20.0, 0.0),
+    ));
+    commands.insert_resource(AmbientLight {
+        color: Color::srgb(0.1, 0.1, 0.2),
+        brightness: 200.0,
+    });
 }
 
 fn setup_cameras(mut commands: Commands, ui_state: Res<UIState>) {
@@ -263,9 +330,15 @@ fn setup_cameras(mut commands: Commands, ui_state: Res<UIState>) {
 
     commands.spawn((
         Camera3d::default(),
-        Projection::Orthographic(OrthographicProjection { scale: 0.1, ..OrthographicProjection::default_3d() }),
+        Projection::Orthographic(OrthographicProjection {
+            scale: 0.1,
+            ..OrthographicProjection::default_3d()
+        }),
         Transform::from_xyz(0.0, 30.0, 0.0).looking_at(Vec3::ZERO, Vec3::NEG_Z),
-        Camera { target: RenderTarget::Image(ui_state.bird_eye_texture.clone()), ..default() },
+        Camera {
+            target: RenderTarget::Image(ui_state.bird_eye_texture.clone()),
+            ..default()
+        },
         BirdEyeCamera,
         Transducer,
     ));
@@ -279,7 +352,7 @@ fn ui_tiled_windows_system(
 ) {
     let bird_eye_id = contexts.add_image(ui_state.bird_eye_texture.clone());
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
-    
+
     let ctx = contexts.ctx_mut();
 
     // 1. TOP STATUS BAR
@@ -291,8 +364,14 @@ fn ui_tiled_windows_system(
             ui.separator();
             let acc = if inference.total_count > 0 {
                 (inference.correct_count as f32 / inference.total_count as f32) * 100.0
-            } else { 0.0 };
-            ui.label(egui::RichText::new(format!("Accuracy: {:.1}%", acc)).color(egui::Color32::LIGHT_GREEN).strong());
+            } else {
+                0.0
+            };
+            ui.label(
+                egui::RichText::new(format!("Accuracy: {:.1}%", acc))
+                    .color(egui::Color32::LIGHT_GREEN)
+                    .strong(),
+            );
         });
     });
 
@@ -300,11 +379,20 @@ fn ui_tiled_windows_system(
     egui::TopBottomPanel::bottom("bottom_controls").show(ctx, |ui| {
         ui.add_space(5.0);
         ui.horizontal(|ui| {
-            if ui.button(if exporter.is_exporting { "🔴 Stop Recording" } else { "⏺ Start Recording [R]" }).clicked() {
+            if ui
+                .button(if exporter.is_exporting {
+                    "🔴 Stop Recording"
+                } else {
+                    "⏺ Start Recording [R]"
+                })
+                .clicked()
+            {
                 exporter.is_exporting = !exporter.is_exporting;
             }
             ui.separator();
-            ui.label("Orbit: L-Click Drag | Pan: WASD | Zoom: Scroll | Reset: Space | Single Export: E");
+            ui.label(
+                "Orbit: L-Click Drag | Pan: WASD | Zoom: Scroll | Reset: Space | Single Export: E",
+            );
         });
         ui.add_space(5.0);
     });
@@ -315,10 +403,10 @@ fn ui_tiled_windows_system(
         .show(ctx, |ui| {
             // Remove spacing between rows/cols
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
-            
+
             let total_h = ui.available_height();
             let half_h = total_h / 2.0;
-            
+
             ui.columns(2, |cols| {
                 // --- LEFT COLUMN (Simulation & AI) ---
                 cols[0].vertical(|ui| {
@@ -338,9 +426,11 @@ fn ui_tiled_windows_system(
                         ui.set_max_height(half_h);
                         ui.set_width(ui.available_width());
                         ui.vertical_centered(|ui| {
-                            ui.label(egui::RichText::new("QUADRANT 3: AI ANALYSIS & METRICS").strong());
+                            ui.label(
+                                egui::RichText::new("QUADRANT 3: AI ANALYSIS & METRICS").strong(),
+                            );
                             ui.add_space(5.0);
-                            
+
                             ui.label("Model Prediction Confidence:");
                             if inference.predictions.is_empty() {
                                 ui.label("Searching for inference server...");
@@ -351,13 +441,20 @@ fn ui_tiled_windows_system(
                                     ui.horizontal(|ui| {
                                         ui.add_space(20.0);
                                         ui.label(format!("{:<10}", species));
-                                        let color = if is_dominant { egui::Color32::from_rgb(0, 255, 100) } else { egui::Color32::WHITE };
-                                        ui.add(egui::ProgressBar::new((score + 1.0) / 2.0)
-                                            .text(format!("{:.2}", score))
-                                            .fill(color)
-                                            .desired_width(150.0)); // Fixed width to prevent quadrant expansion
-                                        if is_dominant { ui.label("🎯"); }
-
+                                        let color = if is_dominant {
+                                            egui::Color32::from_rgb(0, 255, 100)
+                                        } else {
+                                            egui::Color32::WHITE
+                                        };
+                                        ui.add(
+                                            egui::ProgressBar::new((score + 1.0) / 2.0)
+                                                .text(format!("{:.2}", score))
+                                                .fill(color)
+                                                .desired_width(150.0),
+                                        ); // Fixed width to prevent quadrant expansion
+                                        if is_dominant {
+                                            ui.label("🎯");
+                                        }
                                     });
                                 }
                             }
@@ -376,8 +473,11 @@ fn ui_tiled_windows_system(
                         ui.set_width(ui.available_width());
                         ui.vertical_centered(|ui| {
                             ui.label(egui::RichText::new("QUADRANT 2: BIRD'S EYE (GT)").strong());
-                            ui.image(egui::load::SizedTexture::new(bird_eye_id, [ui.available_width() - 30.0, half_h - 100.0]));
-                            
+                            ui.image(egui::load::SizedTexture::new(
+                                bird_eye_id,
+                                [ui.available_width() - 30.0, half_h - 100.0],
+                            ));
+
                             ui.horizontal(|ui| {
                                 ui.label("Composition:");
                                 if inference.ground_truth_dist.is_empty() {
@@ -398,7 +498,10 @@ fn ui_tiled_windows_system(
                         ui.set_width(ui.available_width());
                         ui.vertical_centered(|ui| {
                             ui.label(egui::RichText::new("QUADRANT 4: ECHOSOUNDER").strong());
-                            ui.image(egui::load::SizedTexture::new(echogram_id, [ui.available_width() - 30.0, half_h - 70.0]));
+                            ui.image(egui::load::SizedTexture::new(
+                                echogram_id,
+                                [ui.available_width() - 30.0, half_h - 70.0],
+                            ));
                             ui.label("Acoustic Time-Series (120kHz)");
                         });
                     });
@@ -416,10 +519,14 @@ fn model_inference_system(
     fish_query: Query<(&Transform, &Species)>,
 ) {
     inference.timer.tick(time.delta());
-    if !inference.timer.finished() { return; }
+    if !inference.timer.finished() {
+        return;
+    }
 
     // 1. Calculate Biological Composition (Ground Truth Distribution)
-    let Ok(transducer_tf) = transducer_query.get_single() else { return };
+    let Ok(transducer_tf) = transducer_query.get_single() else {
+        return;
+    };
     let t_pos = transducer_tf.translation;
     let half_angle_rad = (TRANSDUCER_CONE_ANGLE / 2.0).to_radians();
 
@@ -448,28 +555,46 @@ fn model_inference_system(
     inference.ground_truth_dist = gt_dist;
 
     // 2. Perform Inference
-    let Some(img) = images.get(&ui_state.echogram_texture) else { return };
-    let Ok(dynamic_img) = img.clone().try_into_dynamic() else { return };
+    let Some(img) = images.get(&ui_state.echogram_texture) else {
+        return;
+    };
+    let Ok(dynamic_img) = img.clone().try_into_dynamic() else {
+        return;
+    };
     let mut buffer = std::io::Cursor::new(Vec::new());
-    if dynamic_img.to_rgba8().write_to(&mut buffer, image::ImageFormat::Png).is_err() { return; }
+    if dynamic_img
+        .to_rgba8()
+        .write_to(&mut buffer, image::ImageFormat::Png)
+        .is_err()
+    {
+        return;
+    }
     let png_bytes = buffer.into_inner();
 
     let client = reqwest::blocking::Client::new();
-    let form = reqwest::blocking::multipart::Form::new()
-        .part("file", reqwest::blocking::multipart::Part::bytes(png_bytes).file_name("ping.png").mime_str("image/png").unwrap());
+    let form = reqwest::blocking::multipart::Form::new().part(
+        "file",
+        reqwest::blocking::multipart::Part::bytes(png_bytes)
+            .file_name("ping.png")
+            .mime_str("image/png")
+            .unwrap(),
+    );
 
-    if let Ok(resp) = client.post("http://127.0.0.1:8000/predict_acoustic").multipart(form).send() {
-        if let Ok(preds) = resp.json::<Vec<(String, f32)>>() {
-            inference.predictions = preds.clone();
-            
-            // 3. Update Accuracy (Top-1 dominant species match)
-            if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
-                let top_gt_name = top_gt.clone(); // Clone to avoid borrow conflict
-                if let Some((top_pred, _)) = preds.first() {
-                    inference.total_count += 1;
-                    if top_pred == &top_gt_name {
-                        inference.correct_count += 1;
-                    }
+    if let Ok(preds) = client
+        .post("http://127.0.0.1:8000/predict_acoustic")
+        .multipart(form)
+        .send()
+        .and_then(|resp| resp.json::<Vec<(String, f32)>>())
+    {
+        inference.predictions = preds.clone();
+
+        // 3. Update Accuracy (Top-1 dominant species match)
+        if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
+            let top_gt_name = top_gt.clone(); // Clone to avoid borrow conflict
+            if let Some((top_pred, _)) = preds.first() {
+                inference.total_count += 1;
+                if top_pred == &top_gt_name {
+                    inference.correct_count += 1;
                 }
             }
         }
@@ -481,11 +606,16 @@ fn dataset_exporter_system(
     mut exporter: ResMut<DatasetExporter>,
     ui_state: Res<UIState>,
     images: Res<Assets<Image>>,
+    inference: Res<InferenceResult>,
 ) {
     let mut trigger = false;
-    if keys.just_pressed(KeyCode::KeyE) { trigger = true; }
-    if keys.just_pressed(KeyCode::KeyR) { exporter.is_exporting = !exporter.is_exporting; }
-    
+    if keys.just_pressed(KeyCode::KeyE) {
+        trigger = true;
+    }
+    if keys.just_pressed(KeyCode::KeyR) {
+        exporter.is_exporting = !exporter.is_exporting;
+    }
+
     if exporter.is_exporting || trigger {
         exporter.frame_count += 1;
         let frame = exporter.frame_count;
@@ -504,14 +634,14 @@ fn dataset_exporter_system(
         }
 
         // 2. Export Acoustic (Latest column or full texture)
-        // For simplicity, we save the full echogram as a PNG too, 
+        // For simplicity, we save the full echogram as a PNG too,
         // as it's the easiest format to inspect.
         if let Some(img) = images.get(&ui_state.echogram_texture) {
             let path = format!("{}/frame_{:04}_acoustic.png", exporter.export_path, frame);
-             if let Ok(dynamic_img) = img.clone().try_into_dynamic() {
+            if let Ok(dynamic_img) = img.clone().try_into_dynamic() {
                 let _ = dynamic_img.to_rgba8().save(path);
             }
-            
+
             // Also save the latest ping as raw binary (equivalent to .npy)
             let path_bin = format!("{}/frame_{:04}_ping.bin", exporter.export_path, frame);
             let mut latest_ping = Vec::new();
@@ -521,6 +651,13 @@ fn dataset_exporter_system(
                 latest_ping.push(img.data[i]);
             }
             let _ = fs::write(path_bin, latest_ping);
+        }
+
+        // 3. Export Meta-data (for prototype learning)
+        if let Some((top_species, _)) = inference.ground_truth_dist.first() {
+            let path_meta = format!("{}/frame_{:04}_meta.json", exporter.export_path, frame);
+            let meta = format!(r#"{{"dominant_species": "{}"}}"#, top_species);
+            let _ = fs::write(path_meta, meta);
         }
     }
 }
@@ -539,14 +676,14 @@ fn camera_controller_system(
     // 1. Zoom (Scroll / Pinch)
     for event in mouse_wheel_events.read() {
         if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-             // Side scroll/trackpad horizontal can pan
-             settings.target_center.x -= event.x * 0.5;
-             settings.target_center.z -= event.y * 0.5;
+            // Side scroll/trackpad horizontal can pan
+            settings.target_center.x -= event.x * 0.5;
+            settings.target_center.z -= event.y * 0.5;
         } else {
             let zoom_delta = event.y * 2.0;
             settings.target_radius -= zoom_delta;
             settings.target_radius = settings.target_radius.clamp(5.0, 100.0);
-            
+
             // Trackpad horizontal scroll = Yaw orbit
             settings.target_yaw -= event.x * 0.05;
         }
@@ -566,18 +703,26 @@ fn camera_controller_system(
     // 3. Panning (WASD / Arrows)
     let mut pan_vec = Vec3::ZERO;
     let pan_speed = 20.0 * time.delta_secs();
-    
+
     // Get camera relative axes
     let forward = transform.forward().as_vec3();
     let right = transform.right().as_vec3();
     let forward_flat = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
     let right_flat = Vec3::new(right.x, 0.0, right.z).normalize_or_zero();
 
-    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) { pan_vec += forward_flat; }
-    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) { pan_vec -= forward_flat; }
-    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) { pan_vec -= right_flat; }
-    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) { pan_vec += right_flat; }
-    
+    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
+        pan_vec += forward_flat;
+    }
+    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
+        pan_vec -= forward_flat;
+    }
+    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
+        pan_vec -= right_flat;
+    }
+    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
+        pan_vec += right_flat;
+    }
+
     settings.target_center += pan_vec * pan_speed;
 
     // 4. Reset View
@@ -598,7 +743,7 @@ fn camera_controller_system(
     // Calculate final transform
     let rotation = Quat::from_rotation_y(settings.yaw) * Quat::from_rotation_x(-settings.pitch);
     let offset = rotation.mul_vec3(Vec3::new(0.0, 0.0, settings.radius));
-    
+
     transform.translation = settings.center + offset;
     transform.look_at(settings.center, Vec3::Y);
 }
@@ -612,17 +757,28 @@ fn boid_movement_system(time: Res<Time>, mut query: Query<(&mut Transform, &Boid
         }
         let (min_y, max_y) = species.preferred_depth_range();
         let current_y = transform.translation.y + TANK_SIZE.y / 2.0;
-        if current_y < min_y { transform.translation.y += 0.05; }
-        else if current_y > max_y { transform.translation.y -= 0.05; }
+        if current_y < min_y {
+            transform.translation.y += 0.05;
+        } else if current_y > max_y {
+            transform.translation.y -= 0.05;
+        }
     }
 }
 
 fn boundary_wrapping_system(mut query: Query<&mut Transform, With<Boid>>) {
     for mut transform in query.iter_mut() {
-        if transform.translation.x > TANK_SIZE.x / 2.0 { transform.translation.x = -TANK_SIZE.x / 2.0; }
-        if transform.translation.x < -TANK_SIZE.x / 2.0 { transform.translation.x = TANK_SIZE.x / 2.0; }
-        if transform.translation.z > TANK_SIZE.z / 2.0 { transform.translation.z = -TANK_SIZE.z / 2.0; }
-        if transform.translation.z < -TANK_SIZE.z / 2.0 { transform.translation.z = TANK_SIZE.z / 2.0; }
+        if transform.translation.x > TANK_SIZE.x / 2.0 {
+            transform.translation.x = -TANK_SIZE.x / 2.0;
+        }
+        if transform.translation.x < -TANK_SIZE.x / 2.0 {
+            transform.translation.x = TANK_SIZE.x / 2.0;
+        }
+        if transform.translation.z > TANK_SIZE.z / 2.0 {
+            transform.translation.z = -TANK_SIZE.z / 2.0;
+        }
+        if transform.translation.z < -TANK_SIZE.z / 2.0 {
+            transform.translation.z = TANK_SIZE.z / 2.0;
+        }
     }
 }
 
@@ -632,20 +788,29 @@ fn echosounder_ping_system(
     ui_state: Res<UIState>,
     mut images: ResMut<Assets<Image>>,
 ) {
-    let Ok(transducer_tf) = transducer_query.get_single() else { return };
-    let Some(image) = images.get_mut(&ui_state.echogram_texture) else { return };
+    let Ok(transducer_tf) = transducer_query.get_single() else {
+        return;
+    };
+    let Some(image) = images.get_mut(&ui_state.echogram_texture) else {
+        return;
+    };
 
+    // 1. Shift left
     for y in 0..ECHOGRAM_HEIGHT {
         for x in 0..(ECHOGRAM_WIDTH - 1) {
             let dst = ((y * ECHOGRAM_WIDTH + x) * 4) as usize;
             let src = ((y * ECHOGRAM_WIDTH + x + 1) * 4) as usize;
-            image.data.copy_within(src..src+4, dst);
+            image.data.copy_within(src..src + 4, dst);
         }
     }
 
+    // 2. Clear right column (Dark deep blue)
     for y in 0..ECHOGRAM_HEIGHT {
         let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-        image.data[i] = 2; image.data[i+1] = 10; image.data[i+2] = 30; image.data[i+3] = 255;
+        image.data[i] = 2;
+        image.data[i + 1] = 5;
+        image.data[i + 2] = 15;
+        image.data[i + 3] = 255;
     }
 
     let t_pos = transducer_tf.translation;
@@ -658,13 +823,33 @@ fn echosounder_ping_system(
         let angle = direction.dot(Vec3::NEG_Y).acos();
 
         if angle < half_angle_rad {
+            // BEAM PATTERN: Intensity drops as we move off-axis (Gaussian-ish)
+            let beam_factor = (1.0 - (angle / half_angle_rad)).powi(2);
+
             let depth_ratio = (distance / (TANK_SIZE.y * 3.0)).clamp(0.0, 1.0);
-            let y_coord = (depth_ratio * (ECHOGRAM_HEIGHT as f32 - 1.0)) as u32;
-            let i = ((y_coord * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-            let intensity = ((profile.target_strength + 60.0) / 40.0).clamp(0.0, 1.0);
-            image.data[i] = (255.0 * intensity) as u8;
-            image.data[i+1] = (200.0 * intensity) as u8;
-            image.data[i+2] = (50.0 * intensity) as u8;
+            let y_center = (depth_ratio * (ECHOGRAM_HEIGHT as f32 - 1.0)) as i32;
+
+            // PULSE STRETCHING: Draw a small vertical "blob" instead of a pixel
+            let pulse_half_width = 3;
+            for dy in -pulse_half_width..=pulse_half_width {
+                let y = y_center + dy;
+                if y < 0 || y >= ECHOGRAM_HEIGHT as i32 {
+                    continue;
+                }
+
+                let i = ((y as u32 * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
+
+                // FALLOFF within the pulse
+                let pulse_factor = 1.0 - (dy.abs() as f32 / pulse_half_width as f32);
+                let intensity = ((profile.target_strength + 65.0) / 45.0).clamp(0.0, 1.0)
+                    * beam_factor
+                    * pulse_factor;
+
+                // ADDITIVE blending (Multiple fish make a brighter blob)
+                image.data[i] = image.data[i].saturating_add((255.0 * intensity) as u8);
+                image.data[i + 1] = image.data[i + 1].saturating_add((200.0 * intensity) as u8);
+                image.data[i + 2] = image.data[i + 2].saturating_add((50.0 * intensity) as u8);
+            }
         }
     }
 }
@@ -672,19 +857,25 @@ fn set_camera_viewports(
     windows: Query<&Window>,
     mut cameras: Query<&mut Camera, With<MainCamera>>,
 ) {
-    let Ok(window) = windows.get_single() else { return };
-    let Ok(mut camera) = cameras.get_single_mut() else { return };
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let Ok(mut camera) = cameras.get_single_mut() else {
+        return;
+    };
 
     let width = window.resolution.physical_width();
     let height = window.resolution.physical_height();
-    let scale = window.resolution.scale_factor() as f32;
+    let scale = window.resolution.scale_factor();
 
     // The central grid occupies the space between the top status bar and bottom toolbar
     let top_bar_h = (32.0 * scale) as u32;
     let bottom_bar_h = (40.0 * scale) as u32;
-    
-    let available_h = height.saturating_sub(top_bar_h).saturating_sub(bottom_bar_h);
-    
+
+    let available_h = height
+        .saturating_sub(top_bar_h)
+        .saturating_sub(bottom_bar_h);
+
     // Top-Left Quadrant
     camera.viewport = Some(bevy::render::camera::Viewport {
         physical_position: UVec2::new(0, top_bar_h),
