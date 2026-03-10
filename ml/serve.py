@@ -1,5 +1,6 @@
 import os
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from fastapi import FastAPI, UploadFile, File
 from torchvision import transforms, models
@@ -10,27 +11,48 @@ import math
 import json
 from glob import glob
 
-# Re-define the model architecture
-class DualEncoderCLIP(torch.nn.Module):
+# Re-define the exact model architecture from train.py
+class ProjectionHead(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(in_dim, in_dim),
+            nn.BatchNorm1d(in_dim),
+            nn.ReLU(),
+            nn.Linear(in_dim, out_dim)
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+class DualEncoderCLIP(nn.Module):
     def __init__(self, embed_dim=256):
         super().__init__()
-        self.vis_encoder = models.resnet18(weights=None)
-        self.vis_encoder.fc = torch.nn.Linear(self.vis_encoder.fc.in_features, embed_dim)
-        self.ac_encoder = models.resnet18(weights=None)
-        self.ac_encoder.fc = torch.nn.Linear(self.ac_encoder.fc.in_features, embed_dim)
-        self.logit_scale = torch.nn.Parameter(torch.ones([]) * math.log(1 / 0.07))
+        
+        self.vis_backbone = models.resnet18(weights=None)
+        in_features = self.vis_backbone.fc.in_features
+        self.vis_backbone.fc = nn.Identity() 
+        self.vis_proj = ProjectionHead(in_features, embed_dim)
+        
+        self.ac_backbone = models.resnet18(weights=None)
+        self.ac_backbone.fc = nn.Identity()
+        self.ac_proj = ProjectionHead(in_features, embed_dim)
+        
+        self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1 / 0.07))
 
     def forward_vis(self, vis):
-        return F.normalize(self.vis_encoder(vis), p=2, dim=-1)
+        feat = self.vis_backbone(vis)
+        return F.normalize(self.vis_proj(feat), p=2, dim=-1)
 
     def forward_ac(self, ac):
-        return F.normalize(self.ac_encoder(ac), p=2, dim=-1)
+        feat = self.ac_backbone(ac)
+        return F.normalize(self.ac_proj(feat), p=2, dim=-1)
 
 # App Setup
 app = FastAPI()
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
-# Transformation
+# Transformation (Same as training)
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -45,7 +67,7 @@ async def load_model():
     global model, prototypes
     weights_path = "weights/fish_clip_model.pth"
     if not os.path.exists(weights_path):
-        print("ERROR: Model weights not found. Please train first.")
+        print(f"ERROR: Model weights not found at {weights_path}. Please train first.")
         return
 
     model = DualEncoderCLIP()
@@ -56,7 +78,7 @@ async def load_model():
 
     # LEARN PROTOTYPES from visual examples in the dataset
     dataset_path = "../dataset"
-    species_samples = {} # species -> list of embeddings
+    species_samples = {} 
 
     meta_files = glob(os.path.join(dataset_path, "*_meta.json"))
     for meta_path in meta_files:
@@ -64,7 +86,6 @@ async def load_model():
             meta = json.load(f)
             species = meta["dominant_species"]
             
-            # Load corresponding visual image
             vis_path = meta_path.replace("_meta.json", "_visual.png")
             if os.path.exists(vis_path):
                 img = Image.open(vis_path).convert("RGB")

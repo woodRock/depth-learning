@@ -608,57 +608,70 @@ fn dataset_exporter_system(
     images: Res<Assets<Image>>,
     inference: Res<InferenceResult>,
 ) {
-    let mut trigger = false;
-    if keys.just_pressed(KeyCode::KeyE) {
-        trigger = true;
-    }
+    // 1. Handle Toggles
     if keys.just_pressed(KeyCode::KeyR) {
         exporter.is_exporting = !exporter.is_exporting;
+        if exporter.is_exporting {
+            info!("Recording Started...");
+        } else {
+            info!("Recording Stopped. Total frames: {}", exporter.frame_count);
+        }
     }
 
-    if exporter.is_exporting || trigger {
+    let mut trigger_manual = false;
+    if keys.just_pressed(KeyCode::KeyE) {
+        trigger_manual = true;
+    }
+
+    // 2. Only export if recording is active AND the inference timer just finished
+    // This synchronizes our dataset (Visual, Acoustic, and Metadata labels)
+    // and prevents saving 60 identical frames per second.
+    if (exporter.is_exporting && inference.timer.just_finished()) || trigger_manual {
         exporter.frame_count += 1;
         let frame = exporter.frame_count;
 
-        // Ensure directory exists
         if !Path::new(&exporter.export_path).exists() {
             let _ = fs::create_dir_all(&exporter.export_path);
         }
 
-        // 1. Export Visual (Bird's Eye)
+        // --- A. Export Visual ---
         if let Some(img) = images.get(&ui_state.bird_eye_texture) {
             let path = format!("{}/frame_{:04}_visual.png", exporter.export_path, frame);
-            if let Ok(dynamic_img) = img.clone().try_into_dynamic() {
-                let _ = dynamic_img.to_rgba8().save(path);
+            // NOTE: If this image is black, it's because Bevy 0.15 RenderTargets 
+            // aren't automatically copied back to CPU.
+            if let Ok(dyn_img) = img.clone().try_into_dynamic() {
+                if let Err(e) = dyn_img.to_rgba8().save(&path) {
+                    warn!("Failed to save visual frame: {}", e);
+                }
             }
         }
 
-        // 2. Export Acoustic (Latest column or full texture)
-        // For simplicity, we save the full echogram as a PNG too,
-        // as it's the easiest format to inspect.
+        // --- B. Export Acoustic ---
         if let Some(img) = images.get(&ui_state.echogram_texture) {
-            let path = format!("{}/frame_{:04}_acoustic.png", exporter.export_path, frame);
-            if let Ok(dynamic_img) = img.clone().try_into_dynamic() {
-                let _ = dynamic_img.to_rgba8().save(path);
+            let path_png = format!("{}/frame_{:04}_acoustic.png", exporter.export_path, frame);
+            if let Ok(dyn_img) = img.clone().try_into_dynamic() {
+                let _ = dyn_img.to_rgba8().save(path_png);
             }
 
-            // Also save the latest ping as raw binary (equivalent to .npy)
             let path_bin = format!("{}/frame_{:04}_ping.bin", exporter.export_path, frame);
             let mut latest_ping = Vec::new();
             for y in 0..ECHOGRAM_HEIGHT {
                 let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-                // Just save the intensity (Red channel)
                 latest_ping.push(img.data[i]);
             }
-            let _ = fs::write(path_bin, latest_ping);
+            if let Err(e) = fs::write(&path_bin, latest_ping) {
+                warn!("Failed to save ping binary: {}", e);
+            }
         }
 
-        // 3. Export Meta-data (for prototype learning)
+        // --- C. Export Metadata ---
         if let Some((top_species, _)) = inference.ground_truth_dist.first() {
             let path_meta = format!("{}/frame_{:04}_meta.json", exporter.export_path, frame);
             let meta = format!(r#"{{"dominant_species": "{}"}}"#, top_species);
             let _ = fs::write(path_meta, meta);
         }
+        
+        info!("Exported frame {} to {}", frame, exporter.export_path);
     }
 }
 

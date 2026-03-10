@@ -5,4 +5,7 @@ Pillow
 tqdm
 fastapi
 uvicorn
-python-multipartruff
+python-multipart
+wandb
+python-dotenv
+ruff
