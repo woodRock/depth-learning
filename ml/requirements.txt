@@ -3,3 +3,6 @@ torchvision
 numpy
 Pillow
 tqdm
+fastapi
+uvicorn
+python-multipart

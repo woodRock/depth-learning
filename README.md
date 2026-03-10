@@ -1,6 +1,7 @@
 # 🐟 Multimodal Fish Simulation & Synthetic Dataset Generator
 
-[![CI](https://github.com/woodj/depth-learning/actions/workflows/ci.yml/badge.svg)](https://github.com/woodj/depth-learning/actions/workflows/ci.yml)
+[![CI](https://github.com/woodRock/depth-learning/actions/workflows/ci.yml/badge.svg)](https://github.com/woodRock/depth-learning/actions/workflows/ci.yml)
+[![CI](https://github.com/woodRock/depth-learning/actions/workflows/ci.yml/badge.svg)](https://github.com/woodRock/depth-learning/actions/workflows/ci.yml)
 [![Rust](https://img.shields.io/badge/rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
 [![Bevy](https://img.shields.io/badge/bevy-0.15.2-blue.svg)](https://bevyengine.org)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org)

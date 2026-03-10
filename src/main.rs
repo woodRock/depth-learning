@@ -22,6 +22,27 @@ const ECHOGRAM_HEIGHT: u32 = 256;
 const BIRD_EYE_WIDTH: u32 = 512;
 const BIRD_EYE_HEIGHT: u32 = 512;
 
+#[derive(Resource)]
+struct InferenceResult {
+    pub predictions: Vec<(String, f32)>,
+    pub ground_truth_dist: Vec<(String, f32)>, // (Species, Percentage)
+    pub correct_count: u32,
+    pub total_count: u32,
+    pub timer: Timer,
+}
+
+impl Default for InferenceResult {
+    fn default() -> Self {
+        Self {
+            predictions: Vec::new(),
+            ground_truth_dist: Vec::new(),
+            correct_count: 0,
+            total_count: 0,
+            timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+        }
+    }
+}
+
 // --- Components ---
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
@@ -122,6 +143,7 @@ fn main() {
         .insert_resource(ClearColor(Color::BLACK))
         .init_resource::<CameraSettings>()
         .init_resource::<DatasetExporter>()
+        .init_resource::<InferenceResult>()
         .add_systems(Startup, (setup_render_textures, setup_scene, setup_cameras).chain())
         .add_systems(Update, (
             boid_movement_system,
@@ -130,6 +152,8 @@ fn main() {
             camera_controller_system,
             ui_tiled_windows_system,
             dataset_exporter_system,
+            model_inference_system,
+            set_camera_viewports,
         ))
         .run();
 }
@@ -251,53 +275,205 @@ fn ui_tiled_windows_system(
     mut contexts: EguiContexts,
     ui_state: Res<UIState>,
     mut exporter: ResMut<DatasetExporter>,
+    inference: Res<InferenceResult>,
 ) {
     let bird_eye_id = contexts.add_image(ui_state.bird_eye_texture.clone());
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
     
     let ctx = contexts.ctx_mut();
 
-    egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+    // 1. TOP STATUS BAR
+    egui::TopBottomPanel::top("top_status").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            ui.heading("Multimodal Fish Simulation (Bevy)");
+            ui.heading("🐟 DeepFish Sim-In-Loop Analytics");
             ui.separator();
-            ui.label(format!("Frames Exported: {}", exporter.frame_count));
-            
-            if ui.button(if exporter.is_exporting { "🔴 Recording..." } else { "⏺ Record [R]" }).clicked() {
+            ui.label(format!("Frames: {}", exporter.frame_count));
+            ui.separator();
+            let acc = if inference.total_count > 0 {
+                (inference.correct_count as f32 / inference.total_count as f32) * 100.0
+            } else { 0.0 };
+            ui.label(egui::RichText::new(format!("Accuracy: {:.1}%", acc)).color(egui::Color32::LIGHT_GREEN).strong());
+        });
+    });
+
+    // 2. BOTTOM CONTROL TOOLBAR
+    egui::TopBottomPanel::bottom("bottom_controls").show(ctx, |ui| {
+        ui.add_space(5.0);
+        ui.horizontal(|ui| {
+            if ui.button(if exporter.is_exporting { "🔴 Stop Recording" } else { "⏺ Start Recording [R]" }).clicked() {
                 exporter.is_exporting = !exporter.is_exporting;
             }
+            ui.separator();
+            ui.label("Orbit: L-Click Drag | Pan: WASD | Zoom: Scroll | Reset: Space | Single Export: E");
         });
+        ui.add_space(5.0);
     });
 
-    egui::SidePanel::right("data_views").default_width(320.0).show(ctx, |ui| {
-        ui.vertical_centered(|ui| {
-            ui.heading("Ground Truth Data");
-        });
-        ui.add_space(10.0);
+    // 3. CENTRAL QUADRANT GRID
+    egui::CentralPanel::default()
+        .frame(egui::Frame::none().inner_margin(0.0))
+        .show(ctx, |ui| {
+            // Remove spacing between rows/cols
+            ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
+            
+            let total_h = ui.available_height();
+            let half_h = total_h / 2.0;
+            
+            ui.columns(2, |cols| {
+                // --- LEFT COLUMN (Simulation & AI) ---
+                cols[0].vertical(|ui| {
+                    // Q1: 3D SIMULATION SPACE
+                    ui.group(|ui| {
+                        ui.set_min_height(half_h);
+                        ui.set_max_height(half_h);
+                        ui.set_width(ui.available_width());
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("QUADRANT 1: 3D SIMULATION").strong());
+                        });
+                    });
 
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Visual (Bird's Eye)").strong());
-            ui.image(egui::load::SizedTexture::new(bird_eye_id, [300.0, 300.0]));
-        });
+                    // Q3: AI ANALYSIS & METRICS
+                    ui.group(|ui| {
+                        ui.set_min_height(half_h);
+                        ui.set_max_height(half_h);
+                        ui.set_width(ui.available_width());
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("QUADRANT 3: AI ANALYSIS & METRICS").strong());
+                            ui.add_space(5.0);
+                            
+                            ui.label("Model Prediction Confidence:");
+                            if inference.predictions.is_empty() {
+                                ui.label("Searching for inference server...");
+                            } else {
+                                let top_gt = inference.ground_truth_dist.first().map(|x| &x.0);
+                                for (species, score) in &inference.predictions {
+                                    let is_dominant = top_gt == Some(species);
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(20.0);
+                                        ui.label(format!("{:<10}", species));
+                                        let color = if is_dominant { egui::Color32::from_rgb(0, 255, 100) } else { egui::Color32::WHITE };
+                                        ui.add(egui::ProgressBar::new((score + 1.0) / 2.0)
+                                            .text(format!("{:.2}", score))
+                                            .fill(color)
+                                            .desired_width(150.0)); // Fixed width to prevent quadrant expansion
+                                        if is_dominant { ui.label("🎯"); }
 
-        ui.add_space(20.0);
+                                    });
+                                }
+                            }
+                            ui.add_space(5.0);
+                            ui.label(format!("Samples Analyzed: {}", inference.total_count));
+                        });
+                    });
+                });
 
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Acoustic (Echogram)").strong());
-            ui.image(egui::load::SizedTexture::new(echogram_id, [300.0, 150.0]));
+                // --- RIGHT COLUMN (Visual GT & Echosounder) ---
+                cols[1].vertical(|ui| {
+                    // Q2: BIRD'S EYE (GROUND TRUTH)
+                    ui.group(|ui| {
+                        ui.set_min_height(half_h);
+                        ui.set_max_height(half_h);
+                        ui.set_width(ui.available_width());
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("QUADRANT 2: BIRD'S EYE (GT)").strong());
+                            ui.image(egui::load::SizedTexture::new(bird_eye_id, [ui.available_width() - 30.0, half_h - 100.0]));
+                            
+                            ui.horizontal(|ui| {
+                                ui.label("Composition:");
+                                if inference.ground_truth_dist.is_empty() {
+                                    ui.label("None");
+                                } else {
+                                    for (species, pct) in &inference.ground_truth_dist {
+                                        ui.label(format!("{}: {:.0}%", species, pct * 100.0));
+                                    }
+                                }
+                            });
+                        });
+                    });
+
+                    // Q4: ECHOSOUNDER (AI INPUT)
+                    ui.group(|ui| {
+                        ui.set_min_height(half_h);
+                        ui.set_max_height(half_h);
+                        ui.set_width(ui.available_width());
+                        ui.vertical_centered(|ui| {
+                            ui.label(egui::RichText::new("QUADRANT 4: ECHOSOUNDER").strong());
+                            ui.image(egui::load::SizedTexture::new(echogram_id, [ui.available_width() - 30.0, half_h - 70.0]));
+                            ui.label("Acoustic Time-Series (120kHz)");
+                        });
+                    });
+                });
+            });
         });
-        
-        ui.add_space(20.0);
-        ui.group(|ui| {
-            ui.label(egui::RichText::new("Controls").strong());
-            ui.label("Orbit: Left-Click + Drag / Two-Finger Swipe");
-            ui.label("Pan: WASD / Arrows / Shift + Scroll");
-            ui.label("Zoom: Scroll / Pinch");
-            ui.label("Reset View: [Space]");
-            ui.label("Toggle Record: [R]");
-            ui.label("Single Export: [E]");
-        });
-    });
+}
+
+fn model_inference_system(
+    time: Res<Time>,
+    mut inference: ResMut<InferenceResult>,
+    ui_state: Res<UIState>,
+    images: Res<Assets<Image>>,
+    transducer_query: Query<&Transform, With<Transducer>>,
+    fish_query: Query<(&Transform, &Species)>,
+) {
+    inference.timer.tick(time.delta());
+    if !inference.timer.finished() { return; }
+
+    // 1. Calculate Biological Composition (Ground Truth Distribution)
+    let Ok(transducer_tf) = transducer_query.get_single() else { return };
+    let t_pos = transducer_tf.translation;
+    let half_angle_rad = (TRANSDUCER_CONE_ANGLE / 2.0).to_radians();
+
+    let mut species_counts = std::collections::HashMap::new();
+    let mut total_fish_in_beam = 0;
+
+    for (fish_tf, species) in fish_query.iter() {
+        let to_fish = fish_tf.translation - t_pos;
+        let distance = to_fish.length();
+        let direction = to_fish / distance;
+        let angle = direction.dot(Vec3::NEG_Y).acos();
+
+        if angle < half_angle_rad {
+            let s_name = format!("{:?}", species);
+            *species_counts.entry(s_name).or_insert(0) += 1;
+            total_fish_in_beam += 1;
+        }
+    }
+
+    // Convert counts to percentages
+    let mut gt_dist = Vec::new();
+    for (name, count) in species_counts {
+        gt_dist.push((name, count as f32 / total_fish_in_beam as f32));
+    }
+    gt_dist.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    inference.ground_truth_dist = gt_dist;
+
+    // 2. Perform Inference
+    let Some(img) = images.get(&ui_state.echogram_texture) else { return };
+    let Ok(dynamic_img) = img.clone().try_into_dynamic() else { return };
+    let mut buffer = std::io::Cursor::new(Vec::new());
+    if dynamic_img.to_rgba8().write_to(&mut buffer, image::ImageFormat::Png).is_err() { return; }
+    let png_bytes = buffer.into_inner();
+
+    let client = reqwest::blocking::Client::new();
+    let form = reqwest::blocking::multipart::Form::new()
+        .part("file", reqwest::blocking::multipart::Part::bytes(png_bytes).file_name("ping.png").mime_str("image/png").unwrap());
+
+    if let Ok(resp) = client.post("http://127.0.0.1:8000/predict_acoustic").multipart(form).send() {
+        if let Ok(preds) = resp.json::<Vec<(String, f32)>>() {
+            inference.predictions = preds.clone();
+            
+            // 3. Update Accuracy (Top-1 dominant species match)
+            if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
+                let top_gt_name = top_gt.clone(); // Clone to avoid borrow conflict
+                if let Some((top_pred, _)) = preds.first() {
+                    inference.total_count += 1;
+                    if top_pred == &top_gt_name {
+                        inference.correct_count += 1;
+                    }
+                }
+            }
+        }
+    }
 }
 
 fn dataset_exporter_system(
@@ -491,4 +667,28 @@ fn echosounder_ping_system(
             image.data[i+2] = (50.0 * intensity) as u8;
         }
     }
+}
+fn set_camera_viewports(
+    windows: Query<&Window>,
+    mut cameras: Query<&mut Camera, With<MainCamera>>,
+) {
+    let Ok(window) = windows.get_single() else { return };
+    let Ok(mut camera) = cameras.get_single_mut() else { return };
+
+    let width = window.resolution.physical_width();
+    let height = window.resolution.physical_height();
+    let scale = window.resolution.scale_factor() as f32;
+
+    // The central grid occupies the space between the top status bar and bottom toolbar
+    let top_bar_h = (32.0 * scale) as u32;
+    let bottom_bar_h = (40.0 * scale) as u32;
+    
+    let available_h = height.saturating_sub(top_bar_h).saturating_sub(bottom_bar_h);
+    
+    // Top-Left Quadrant
+    camera.viewport = Some(bevy::render::camera::Viewport {
+        physical_position: UVec2::new(0, top_bar_h),
+        physical_size: UVec2::new(width / 2, available_h / 2),
+        ..default()
+    });
 }
