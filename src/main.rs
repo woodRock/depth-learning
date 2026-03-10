@@ -250,8 +250,8 @@ fn setup_cameras(mut commands: Commands, ui_state: Res<UIState>) {
 fn ui_tiled_windows_system(
     mut contexts: EguiContexts,
     ui_state: Res<UIState>,
+    mut exporter: ResMut<DatasetExporter>,
 ) {
-    // Add images to egui first
     let bird_eye_id = contexts.add_image(ui_state.bird_eye_texture.clone());
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
     
@@ -261,7 +261,11 @@ fn ui_tiled_windows_system(
         ui.horizontal(|ui| {
             ui.heading("Multimodal Fish Simulation (Bevy)");
             ui.separator();
-            ui.label("Status: Real-time Generating Data");
+            ui.label(format!("Frames Exported: {}", exporter.frame_count));
+            
+            if ui.button(if exporter.is_exporting { "🔴 Recording..." } else { "⏺ Record [R]" }).clicked() {
+                exporter.is_exporting = !exporter.is_exporting;
+            }
         });
     });
 
@@ -290,8 +294,59 @@ fn ui_tiled_windows_system(
             ui.label("Pan: WASD / Arrows / Shift + Scroll");
             ui.label("Zoom: Scroll / Pinch");
             ui.label("Reset View: [Space]");
+            ui.label("Toggle Record: [R]");
+            ui.label("Single Export: [E]");
         });
     });
+}
+
+fn dataset_exporter_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut exporter: ResMut<DatasetExporter>,
+    ui_state: Res<UIState>,
+    images: Res<Assets<Image>>,
+) {
+    let mut trigger = false;
+    if keys.just_pressed(KeyCode::KeyE) { trigger = true; }
+    if keys.just_pressed(KeyCode::KeyR) { exporter.is_exporting = !exporter.is_exporting; }
+    
+    if exporter.is_exporting || trigger {
+        exporter.frame_count += 1;
+        let frame = exporter.frame_count;
+
+        // Ensure directory exists
+        if !Path::new(&exporter.export_path).exists() {
+            let _ = fs::create_dir_all(&exporter.export_path);
+        }
+
+        // 1. Export Visual (Bird's Eye)
+        if let Some(img) = images.get(&ui_state.bird_eye_texture) {
+            let path = format!("{}/frame_{:04}_visual.png", exporter.export_path, frame);
+            if let Ok(dynamic_img) = img.clone().try_into_dynamic() {
+                let _ = dynamic_img.to_rgba8().save(path);
+            }
+        }
+
+        // 2. Export Acoustic (Latest column or full texture)
+        // For simplicity, we save the full echogram as a PNG too, 
+        // as it's the easiest format to inspect.
+        if let Some(img) = images.get(&ui_state.echogram_texture) {
+            let path = format!("{}/frame_{:04}_acoustic.png", exporter.export_path, frame);
+             if let Ok(dynamic_img) = img.clone().try_into_dynamic() {
+                let _ = dynamic_img.to_rgba8().save(path);
+            }
+            
+            // Also save the latest ping as raw binary (equivalent to .npy)
+            let path_bin = format!("{}/frame_{:04}_ping.bin", exporter.export_path, frame);
+            let mut latest_ping = Vec::new();
+            for y in 0..ECHOGRAM_HEIGHT {
+                let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
+                // Just save the intensity (Red channel)
+                latest_ping.push(img.data[i]);
+            }
+            let _ = fs::write(path_bin, latest_ping);
+        }
+    }
 }
 
 fn camera_controller_system(
