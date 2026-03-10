@@ -60,11 +60,18 @@ impl Species {
             Species::Cod => (0.0, 2.5),
         }
     }
-    fn color(&self) -> Srgba {
+    fn color(&self) -> Color {
         match self {
-            Species::Kingfish => Srgba::new(0.2, 0.5, 1.0, 1.0),
-            Species::Snapper => Srgba::new(1.0, 0.3, 0.3, 1.0),
-            Species::Cod => Srgba::new(0.5, 0.5, 0.2, 1.0),
+            Species::Kingfish => Color::srgb(0.2, 0.5, 1.0),
+            Species::Snapper => Color::srgb(1.0, 0.3, 0.3),
+            Species::Cod => Color::srgb(0.5, 0.5, 0.2),
+        }
+    }
+    fn scale(&self) -> f32 {
+        match self {
+            Species::Kingfish => 4.0,
+            Species::Snapper => 2.5,
+            Species::Cod => 1.8,
         }
     }
     fn target_strength(&self) -> f32 {
@@ -171,6 +178,7 @@ fn main() {
                 dataset_exporter_system,
                 model_inference_system,
                 set_camera_viewports,
+                tint_fish_system,
             ),
         )
         .run();
@@ -247,7 +255,9 @@ fn setup_scene(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
+    // Sea Floor Grid
     for i in -5..=5 {
         let x = i as f32 * 4.0;
         commands.spawn((
@@ -271,6 +281,8 @@ fn setup_scene(
         ));
     }
 
+    let fish_handle = asset_server.load("models/fish.glb#Scene0");
+
     let mut rng = thread_rng();
     for _ in 0..FISH_COUNT {
         let species = match rng.gen_range(0..3) {
@@ -286,14 +298,8 @@ fn setup_scene(
         );
 
         commands.spawn((
-            Mesh3d(meshes.add(Capsule3d::new(0.1, 0.3))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: species.color().into(),
-                unlit: false,
-                emissive: species.color().into(),
-                ..default()
-            })),
-            Transform::from_translation(pos),
+            SceneRoot(fish_handle.clone()),
+            Transform::from_translation(pos).with_scale(Vec3::splat(species.scale())),
             species,
             AcousticProfile {
                 target_strength: species.target_strength(),
@@ -895,4 +901,46 @@ fn set_camera_viewports(
         physical_size: UVec2::new(width / 2, available_h / 2),
         ..default()
     });
+}
+fn tint_fish_system(
+    query: Query<(Entity, &Children, &Species)>,
+    children_query: Query<&Children>,
+    mut mesh_query: Query<&mut MeshMaterial3d<StandardMaterial>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut already_tinted: Local<std::collections::HashSet<Entity>>,
+) {
+    for (entity, children, species) in query.iter() {
+        if already_tinted.contains(&entity) {
+            continue;
+        }
+
+        let mut tinted_something = false;
+        let mut stack: Vec<Entity> = children.iter().copied().collect();
+        while let Some(child_entity) = stack.pop() {
+            if let Ok(mut mat_comp) = mesh_query.get_mut(child_entity) {
+                // Get the current shared material
+                let current_handle = mat_comp.0.clone();
+                if let Some(shared_mat) = materials.get(&current_handle) {
+                    // Create a unique clone for this specific fish species
+                    let mut unique_mat = shared_mat.clone();
+                    unique_mat.base_color_texture = None;
+                    unique_mat.base_color = species.color();
+                    unique_mat.emissive = species.color().into();
+                    unique_mat.metallic = 0.1;
+                    unique_mat.perceptual_roughness = 0.5;
+
+                    // Assign the unique material back to the entity
+                    mat_comp.0 = materials.add(unique_mat);
+                    tinted_something = true;
+                }
+            }
+            if let Ok(next_children) = children_query.get(child_entity) {
+                stack.extend(next_children.iter().copied());
+            }
+        }
+
+        if tinted_something {
+            already_tinted.insert(entity);
+        }
+    }
 }
