@@ -3,56 +3,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from fastapi import FastAPI, UploadFile, File
-from torchvision import transforms, models
+from torchvision import transforms
 from PIL import Image
 import io
 import uvicorn
-import math
 import json
+import numpy as np
+import base64
 from glob import glob
 
-# Re-define the exact model architecture from train.py
-class ProjectionHead(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, in_dim),
-            nn.BatchNorm1d(in_dim),
-            nn.ReLU(),
-            nn.Linear(in_dim, out_dim)
-        )
+# Import modular models
+from models.acoustic import ConvEncoder, TransformerEncoder
+from models.jepa import CrossModalJEPA
+from models.decoder import LatentDecoder
 
-    def forward(self, x):
-        return self.net(x)
-
-class DualEncoderCLIP(nn.Module):
-    def __init__(self, embed_dim=256):
-        super().__init__()
-        
-        self.vis_backbone = models.resnet18(weights=None)
-        in_features = self.vis_backbone.fc.in_features
-        self.vis_backbone.fc = nn.Identity() 
-        self.vis_proj = ProjectionHead(in_features, embed_dim)
-        
-        self.ac_backbone = models.resnet18(weights=None)
-        self.ac_backbone.fc = nn.Identity()
-        self.ac_proj = ProjectionHead(in_features, embed_dim)
-        
-        self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1 / 0.07))
-
-    def forward_vis(self, vis):
-        feat = self.vis_backbone(vis)
-        return F.normalize(self.vis_proj(feat), p=2, dim=-1)
-
-    def forward_ac(self, ac):
-        feat = self.ac_backbone(ac)
-        return F.normalize(self.ac_proj(feat), p=2, dim=-1)
-
-# App Setup
 app = FastAPI()
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
-# Transformation (Same as training)
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -60,63 +27,101 @@ transform = transforms.Compose([
 ])
 
 model = None
+decoder = None
 prototypes = {}
+history_buffer = None
 
 @app.on_event("startup")
 async def load_model():
-    global model, prototypes
+    global model, decoder, prototypes, history_buffer
     weights_path = "weights/fish_clip_model.pth"
-    if not os.path.exists(weights_path):
-        print(f"ERROR: Model weights not found at {weights_path}. Please train first.")
-        return
+    decoder_path = "weights/decoder_model.pth"
+    config_path = "weights/model_config.json"
+    
+    history_buffer = np.zeros((32, 256), dtype=np.float32)
+    
+    # 1. Load JEPA Model
+    model_type = "conv"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+            model_type = cfg.get("model_type", "conv")
 
-    model = DualEncoderCLIP()
-    model.load_state_dict(torch.load(weights_path, map_location=device))
+    ac_encoder = ConvEncoder() if model_type == "conv" else TransformerEncoder()
+    model = CrossModalJEPA(ac_encoder=ac_encoder)
+    if os.path.exists(weights_path):
+        model.load_state_dict(torch.load(weights_path, map_location=device))
     model.to(device)
     model.eval()
-    print(f"Model loaded on {device}. Learning prototypes from dataset...")
 
-    # LEARN PROTOTYPES from visual examples in the dataset
+    # 2. Load Decoder
+    decoder = LatentDecoder()
+    if os.path.exists(decoder_path):
+        decoder.load_state_dict(torch.load(decoder_path, map_location=device))
+        print("Decoder loaded successfully.")
+    decoder.to(device)
+    decoder.eval()
+    
+    # 3. Learn Prototypes
     dataset_path = "../dataset"
     species_samples = {} 
-
     meta_files = glob(os.path.join(dataset_path, "*_meta.json"))
     for meta_path in meta_files:
         with open(meta_path, 'r') as f:
             meta = json.load(f)
             species = meta["dominant_species"]
-            
             vis_path = meta_path.replace("_meta.json", "_visual.png")
             if os.path.exists(vis_path):
                 img = Image.open(vis_path).convert("RGB")
                 tensor = transform(img).unsqueeze(0).to(device)
                 with torch.no_grad():
-                    emb = model.forward_vis(tensor)
+                    emb = model.target_encoder(tensor)
                     if species not in species_samples:
                         species_samples[species] = []
                     species_samples[species].append(emb)
 
-    # Average the embeddings to create a "Visual Prototype" for each species
     for species, embs in species_samples.items():
         if len(embs) > 0:
             avg_emb = torch.mean(torch.stack(embs), dim=0)
             prototypes[species] = F.normalize(avg_emb, p=2, dim=-1)
-            print(f"  - Learned prototype for {species} (from {len(embs)} samples)")
 
 @app.post("/predict_acoustic")
 async def predict(file: UploadFile = File(...)):
+    global history_buffer
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
-    tensor = transform(image).unsqueeze(0).to(device)
+    
+    img_np = np.array(image)
+    latest_ping_v = img_np[:, -1, 0].astype(np.float32) / 255.0
+    history_buffer = np.roll(history_buffer, -1, axis=0)
+    history_buffer[-1, :] = latest_ping_v
+    
+    history_flat = torch.from_numpy(history_buffer.flatten()).unsqueeze(0).to(device)
     
     with torch.no_grad():
-        ac_emb = model.forward_ac(tensor)
+        # A. Predict Latent
+        vis_latent = model.forward_ac_to_vis_latent(history_flat)
+        
+        # B. Generate Image from Latent
+        gen_img_tensor = decoder(vis_latent) # [1, 3, 224, 224]
+        
+        # C. Convert to base64 string for Bevy
+        gen_img_np = (gen_img_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+        pil_img = Image.fromarray(gen_img_np)
+        buffered = io.BytesIO()
+        pil_img.save(buffered, format="PNG")
+        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+
+        # D. Calculate Similarity Scores
         scores = {}
         for species, proto_emb in prototypes.items():
-            sim = (ac_emb @ proto_emb.t()).item()
+            sim = (vis_latent @ proto_emb.t()).item()
             scores[species] = sim
             
-    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    return {
+        "predictions": sorted(scores.items(), key=lambda x: x[1], reverse=True),
+        "generated_image": img_base64
+    }
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)

@@ -10,8 +10,9 @@ use bevy::{
 };
 use bevy_egui::{EguiContexts, EguiPlugin, egui};
 use rand::prelude::*;
-use std::fs;
+use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::path::Path;
+use std::thread;
 
 // --- Constants & Config ---
 const TANK_SIZE: Vec3 = Vec3::new(20.0, 10.0, 20.0);
@@ -23,9 +24,15 @@ const BIRD_EYE_WIDTH: u32 = 512;
 const BIRD_EYE_HEIGHT: u32 = 512;
 
 #[derive(Resource)]
+struct InferenceChannels {
+    pub tx_image: Sender<Vec<u8>>,
+    pub rx_preds: Receiver<PredictionResponse>,
+}
+
+#[derive(Resource)]
 struct InferenceResult {
     pub predictions: Vec<(String, f32)>,
-    pub ground_truth_dist: Vec<(String, f32)>, // (Species, Percentage)
+    pub ground_truth_dist: Vec<(String, f32)>, 
     pub correct_count: u32,
     pub total_count: u32,
     pub timer: Timer,
@@ -81,6 +88,20 @@ impl Species {
             Species::Cod => -38.0,
         }
     }
+    fn speed(&self) -> f32 {
+        match self {
+            Species::Kingfish => 6.0,
+            Species::Snapper => 3.0,
+            Species::Cod => 1.5,
+        }
+    }
+    fn jitter_intensity(&self) -> f32 {
+        match self {
+            Species::Kingfish => 0.2,
+            Species::Snapper => 0.5,
+            Species::Cod => 0.1,
+        }
+    }
 }
 
 #[derive(Component)]
@@ -91,6 +112,7 @@ struct AcousticProfile {
 #[derive(Component)]
 struct Boid {
     velocity: Vec3,
+    phase_offset: f32, // For unique swimming "rhythm"
 }
 
 #[derive(Component)]
@@ -102,10 +124,17 @@ struct BirdEyeCamera;
 #[derive(Component)]
 struct Transducer;
 
+#[derive(serde::Deserialize)]
+struct PredictionResponse {
+    pub predictions: Vec<(String, f32)>,
+    pub generated_image: String, // base64
+}
+
 #[derive(Resource)]
 struct UIState {
     bird_eye_texture: Handle<Image>,
     echogram_texture: Handle<Image>,
+    generated_visual_texture: Handle<Image>,
 }
 
 #[derive(Resource)]
@@ -136,11 +165,14 @@ impl Default for CameraSettings {
     }
 }
 
+use std::collections::VecDeque;
+
 #[derive(Resource)]
 struct DatasetExporter {
     pub frame_count: u32,
     pub export_path: String,
     pub is_exporting: bool,
+    pub ping_history: VecDeque<Vec<u8>>, // Stores the last 32 pings
 }
 
 impl Default for DatasetExporter {
@@ -149,6 +181,7 @@ impl Default for DatasetExporter {
             frame_count: 0,
             export_path: "dataset".to_string(),
             is_exporting: false,
+            ping_history: VecDeque::with_capacity(32),
         }
     }
 }
@@ -156,10 +189,40 @@ impl Default for DatasetExporter {
 // --- Main App ---
 
 fn main() {
+    let (tx_img, rx_img) = unbounded::<Vec<u8>>();
+    let (tx_preds, rx_preds) = unbounded::<PredictionResponse>();
+
+    // Spawn inference background thread
+    thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        while let Ok(png_bytes) = rx_img.recv() {
+            let form = reqwest::blocking::multipart::Form::new().part(
+                "file",
+                reqwest::blocking::multipart::Part::bytes(png_bytes)
+                    .file_name("ping.png")
+                    .mime_str("image/png")
+                    .unwrap(),
+            );
+
+            if let Ok(resp) = client
+                .post("http://127.0.0.1:8000/predict_acoustic")
+                .multipart(form)
+                .send()
+                .and_then(|resp| resp.json::<PredictionResponse>())
+            {
+                let _ = tx_preds.send(resp);
+            }
+        }
+    });
+
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin)
         .insert_resource(ClearColor(Color::BLACK))
+        .insert_resource(InferenceChannels {
+            tx_image: tx_img,
+            rx_preds,
+        })
         .init_resource::<CameraSettings>()
         .init_resource::<DatasetExporter>()
         .init_resource::<InferenceResult>()
@@ -179,6 +242,7 @@ fn main() {
                 model_inference_system,
                 set_camera_viewports,
                 tint_fish_system,
+                sync_cpu_buffer_system,
             ),
         )
         .run();
@@ -245,9 +309,24 @@ fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image
     };
     let bird_handle = images.add(bird_image);
 
+    // 3. Generated Visual Texture
+    let gen_image = Image::new_fill(
+        Extent3d {
+            width: 224,
+            height: 224,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        &[0, 0, 0, 255],
+        TextureFormat::Rgba8UnormSrgb,
+        bevy::render::render_asset::RenderAssetUsages::default(),
+    );
+    let gen_handle = images.add(gen_image);
+
     commands.insert_resource(UIState {
         bird_eye_texture: bird_handle,
         echogram_texture: echo_handle,
+        generated_visual_texture: gen_handle,
     });
 }
 
@@ -307,7 +386,8 @@ fn setup_scene(
             Boid {
                 velocity: Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0))
                     .normalize()
-                    * 2.0,
+                    * species.speed(),
+                phase_offset: rng.gen_range(0.0..std::f32::consts::TAU),
             },
         ));
     }
@@ -358,11 +438,10 @@ fn ui_tiled_windows_system(
 ) {
     let bird_eye_id = contexts.add_image(ui_state.bird_eye_texture.clone());
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
-
-    let ctx = contexts.ctx_mut();
+    let generated_id = contexts.add_image(ui_state.generated_visual_texture.clone());
 
     // 1. TOP STATUS BAR
-    egui::TopBottomPanel::top("top_status").show(ctx, |ui| {
+    egui::TopBottomPanel::top("top_status").show(contexts.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
             ui.heading("🐟 DeepFish Sim-In-Loop Analytics");
             ui.separator();
@@ -382,7 +461,7 @@ fn ui_tiled_windows_system(
     });
 
     // 2. BOTTOM CONTROL TOOLBAR
-    egui::TopBottomPanel::bottom("bottom_controls").show(ctx, |ui| {
+    egui::TopBottomPanel::bottom("bottom_controls").show(contexts.ctx_mut(), |ui| {
         ui.add_space(5.0);
         ui.horizontal(|ui| {
             if ui
@@ -406,7 +485,7 @@ fn ui_tiled_windows_system(
     // 3. CENTRAL QUADRANT GRID
     egui::CentralPanel::default()
         .frame(egui::Frame::none().inner_margin(0.0))
-        .show(ctx, |ui| {
+        .show(contexts.ctx_mut(), |ui| {
             // Remove spacing between rows/cols
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
@@ -433,7 +512,7 @@ fn ui_tiled_windows_system(
                         ui.set_width(ui.available_width());
                         ui.vertical_centered(|ui| {
                             ui.label(
-                                egui::RichText::new("QUADRANT 3: AI ANALYSIS & METRICS").strong(),
+                                egui::RichText::new("QUADRANT 3: AI ANALYSIS & RECONSTRUCTION").strong(),
                             );
                             ui.add_space(5.0);
 
@@ -457,14 +536,57 @@ fn ui_tiled_windows_system(
                                                 .text(format!("{:.2}", score))
                                                 .fill(color)
                                                 .desired_width(150.0),
-                                        ); // Fixed width to prevent quadrant expansion
+                                        ); 
                                         if is_dominant {
                                             ui.label("🎯");
                                         }
                                     });
                                 }
                             }
+                            
+                            ui.separator();
                             ui.add_space(5.0);
+                            ui.label(egui::RichText::new("AI IMAGE RECONSTRUCTION").strong());
+                            ui.add_space(10.0);
+
+                            // Centered Horizontal Layout for Images
+                            ui.horizontal(|ui| {
+                                // Calculate centering: (Total Width - Content Width) / 2
+                                // content: Sonar(40) + Gen(120) + GT(120) + Spacing(2*20) = 320
+                                let available = ui.available_width();
+                                let content_w = 320.0;
+                                let padding = ((available - content_w) / 2.0).max(0.0);
+                                ui.add_space(padding);
+
+                                ui.vertical(|ui| {
+                                    ui.label("Sonar");
+                                    ui.image(egui::load::SizedTexture::new(
+                                        echogram_id,
+                                        [40.0, 120.0],
+                                    ));
+                                });
+
+                                ui.add_space(20.0);
+
+                                ui.vertical(|ui| {
+                                    ui.label("Generated");
+                                    ui.image(egui::load::SizedTexture::new(
+                                        generated_id,
+                                        [120.0, 120.0],
+                                    ));
+                                });
+
+                                ui.add_space(20.0);
+
+                                ui.vertical(|ui| {
+                                    ui.label("Ground Truth");
+                                    ui.image(egui::load::SizedTexture::new(
+                                        bird_eye_id,
+                                        [120.0, 120.0],
+                                    ));
+                                });
+                            });
+                            ui.add_space(10.0);
                             ui.label(format!("Samples Analyzed: {}", inference.total_count));
                         });
                     });
@@ -520,16 +642,43 @@ fn model_inference_system(
     time: Res<Time>,
     mut inference: ResMut<InferenceResult>,
     ui_state: Res<UIState>,
-    images: Res<Assets<Image>>,
+    mut images: ResMut<Assets<Image>>,
+    channels: Res<InferenceChannels>,
     transducer_query: Query<&Transform, With<Transducer>>,
     fish_query: Query<(&Transform, &Species)>,
 ) {
+    // 1. Process any incoming predictions from the background thread
+    while let Ok(resp) = channels.rx_preds.try_recv() {
+        inference.predictions = resp.predictions.clone();
+        
+        // Update Accuracy
+        if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
+            let top_gt_name = top_gt.clone();
+            if let Some((top_pred, _)) = resp.predictions.first() {
+                inference.total_count += 1;
+                if top_pred == &top_gt_name {
+                    inference.correct_count += 1;
+                }
+            }
+        }
+
+        // DECODE THE GENERATED IMAGE
+        if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &resp.generated_image) {
+            if let Ok(decoded) = image::load_from_memory(&bytes) {
+                let rgba = decoded.to_rgba8();
+                if let Some(target_img) = images.get_mut(&ui_state.generated_visual_texture) {
+                    target_img.data = rgba.into_raw();
+                }
+            }
+        }
+    }
+
     inference.timer.tick(time.delta());
     if !inference.timer.finished() {
         return;
     }
 
-    // 1. Calculate Biological Composition (Ground Truth Distribution)
+    // 2. Calculate Ground Truth Distribution
     let Ok(transducer_tf) = transducer_query.get_single() else {
         return;
     };
@@ -552,7 +701,6 @@ fn model_inference_system(
         }
     }
 
-    // Convert counts to percentages
     let mut gt_dist = Vec::new();
     for (name, count) in species_counts {
         gt_dist.push((name, count as f32 / total_fish_in_beam as f32));
@@ -560,59 +708,35 @@ fn model_inference_system(
     gt_dist.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     inference.ground_truth_dist = gt_dist;
 
-    // 2. Perform Inference
+    // 3. Trigger Inference (Send current echogram to background thread)
     let Some(img) = images.get(&ui_state.echogram_texture) else {
         return;
     };
     let Ok(dynamic_img) = img.clone().try_into_dynamic() else {
         return;
     };
+    
+    // Convert to PNG in a temporary buffer (still on main thread, but fast)
     let mut buffer = std::io::Cursor::new(Vec::new());
     if dynamic_img
         .to_rgba8()
         .write_to(&mut buffer, image::ImageFormat::Png)
-        .is_err()
+        .is_ok()
     {
-        return;
-    }
-    let png_bytes = buffer.into_inner();
-
-    let client = reqwest::blocking::Client::new();
-    let form = reqwest::blocking::multipart::Form::new().part(
-        "file",
-        reqwest::blocking::multipart::Part::bytes(png_bytes)
-            .file_name("ping.png")
-            .mime_str("image/png")
-            .unwrap(),
-    );
-
-    if let Ok(preds) = client
-        .post("http://127.0.0.1:8000/predict_acoustic")
-        .multipart(form)
-        .send()
-        .and_then(|resp| resp.json::<Vec<(String, f32)>>())
-    {
-        inference.predictions = preds.clone();
-
-        // 3. Update Accuracy (Top-1 dominant species match)
-        if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
-            let top_gt_name = top_gt.clone(); // Clone to avoid borrow conflict
-            if let Some((top_pred, _)) = preds.first() {
-                inference.total_count += 1;
-                if top_pred == &top_gt_name {
-                    inference.correct_count += 1;
-                }
-            }
-        }
+        let _ = channels.tx_image.send(buffer.into_inner());
     }
 }
 
+use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+
 fn dataset_exporter_system(
+    mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     mut exporter: ResMut<DatasetExporter>,
     ui_state: Res<UIState>,
     images: Res<Assets<Image>>,
     inference: Res<InferenceResult>,
+    _bird_eye_camera: Query<Entity, With<BirdEyeCamera>>,
 ) {
     // 1. Handle Toggles
     if keys.just_pressed(KeyCode::KeyR) {
@@ -629,55 +753,67 @@ fn dataset_exporter_system(
         trigger_manual = true;
     }
 
-    // 2. Only export if recording is active AND the inference timer just finished
-    // This synchronizes our dataset (Visual, Acoustic, and Metadata labels)
-    // and prevents saving 60 identical frames per second.
+    // 2. Continuous update of history (every frame)
+    if let Some(img) = images.get(&ui_state.echogram_texture) {
+        let mut latest_ping = Vec::new();
+        for y in 0..ECHOGRAM_HEIGHT {
+            let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
+            latest_ping.push(img.data[i]);
+        }
+        exporter.ping_history.push_back(latest_ping);
+        if exporter.ping_history.len() > 32 {
+            exporter.ping_history.pop_front();
+        }
+    }
+
+    // 3. Export Logic
     if (exporter.is_exporting && inference.timer.just_finished()) || trigger_manual {
         exporter.frame_count += 1;
         let frame = exporter.frame_count;
+        let export_path = exporter.export_path.clone();
 
-        if !Path::new(&exporter.export_path).exists() {
-            let _ = fs::create_dir_all(&exporter.export_path);
+        if !Path::new(&export_path).exists() {
+            let _ = std::fs::create_dir_all(&export_path);
         }
 
-        // --- A. Export Visual ---
-        if let Some(img) = images.get(&ui_state.bird_eye_texture) {
-            let path = format!("{}/frame_{:04}_visual.png", exporter.export_path, frame);
-            // NOTE: If this image is black, it's because Bevy 0.15 RenderTargets 
-            // aren't automatically copied back to CPU.
-            if let Ok(dyn_img) = img.clone().try_into_dynamic() {
-                if let Err(e) = dyn_img.to_rgba8().save(&path) {
-                    warn!("Failed to save visual frame: {}", e);
-                }
-            }
-        }
+        // --- A. Capture Visual (Bevy 0.15 Async Screenshot) ---
+        let vis_path = format!("{}/frame_{:04}_visual.png", export_path, frame);
+        commands.spawn(Screenshot::image(ui_state.bird_eye_texture.clone())).observe(save_to_disk(vis_path));
 
-        // --- B. Export Acoustic ---
-        if let Some(img) = images.get(&ui_state.echogram_texture) {
-            let path_png = format!("{}/frame_{:04}_acoustic.png", exporter.export_path, frame);
-            if let Ok(dyn_img) = img.clone().try_into_dynamic() {
-                let _ = dyn_img.to_rgba8().save(path_png);
-            }
-
-            let path_bin = format!("{}/frame_{:04}_ping.bin", exporter.export_path, frame);
-            let mut latest_ping = Vec::new();
-            for y in 0..ECHOGRAM_HEIGHT {
-                let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-                latest_ping.push(img.data[i]);
-            }
-            if let Err(e) = fs::write(&path_bin, latest_ping) {
-                warn!("Failed to save ping binary: {}", e);
-            }
-        }
-
-        // --- C. Export Metadata ---
-        if let Some((top_species, _)) = inference.ground_truth_dist.first() {
-            let path_meta = format!("{}/frame_{:04}_meta.json", exporter.export_path, frame);
-            let meta = format!(r#"{{"dominant_species": "{}"}}"#, top_species);
-            let _ = fs::write(path_meta, meta);
-        }
+        // --- B. Capture Acoustic ---
+        let ac_img = images.get(&ui_state.echogram_texture).and_then(|img| {
+            img.clone().try_into_dynamic().ok().map(|d| d.to_rgba8())
+        });
         
-        info!("Exported frame {} to {}", frame, exporter.export_path);
+        let mut full_history = Vec::new();
+        for ping in &exporter.ping_history {
+            full_history.extend_from_slice(ping);
+        }
+        while full_history.len() < 32 * ECHOGRAM_HEIGHT as usize {
+            full_history.push(0);
+        }
+
+        // --- C. Capture Metadata ---
+        let top_species = inference.ground_truth_dist.first().map(|(s, _)| s.clone());
+
+        // --- D. Offload remaining tasks to background ---
+        thread::spawn(move || {
+            if let Some(data) = ac_img {
+                let path = format!("{}/frame_{:04}_acoustic.png", export_path, frame);
+                let _ = data.save(path);
+            }
+            if !full_history.is_empty() {
+                let path = format!("{}/frame_{:04}_history.bin", export_path, frame);
+                let _ = std::fs::write(path, full_history);
+            }
+            if let Some(species) = top_species {
+                let path = format!("{}/frame_{:04}_meta.json", export_path, frame);
+                let meta = format!(r#"{{"dominant_species": "{}"}}"#, species);
+                let _ = std::fs::write(path, meta);
+            }
+        });
+        
+        info!("Queued export for frame {} (Acoustic + History)", frame);
     }
 }
 
@@ -768,19 +904,30 @@ fn camera_controller_system(
 }
 
 fn boid_movement_system(time: Res<Time>, mut query: Query<(&mut Transform, &Boid, &Species)>) {
+    let t = time.elapsed_secs();
     for (mut transform, boid, species) in query.iter_mut() {
+        // Base movement
         transform.translation += boid.velocity * time.delta_secs();
+        
+        // Vertical Jitter/Wobble
+        let jitter = (t * 2.0 + boid.phase_offset).sin() * species.jitter_intensity() * 0.1;
+        transform.translation.y += jitter;
+
         if boid.velocity.length_squared() > 0.001 {
             let target = transform.translation + boid.velocity;
             transform.look_at(target, Vec3::Y);
         }
+
+        // Species-specific depth adherence
         let (min_y, max_y) = species.preferred_depth_range();
         let current_y = transform.translation.y + TANK_SIZE.y / 2.0;
+        let mut correction = 0.0;
         if current_y < min_y {
-            transform.translation.y += 0.05;
+            correction = 0.1;
         } else if current_y > max_y {
-            transform.translation.y -= 0.05;
+            correction = -0.1;
         }
+        transform.translation.y += correction * time.delta_secs();
     }
 }
 
@@ -814,26 +961,28 @@ fn echosounder_ping_system(
         return;
     };
 
-    // 1. Shift left
-    for y in 0..ECHOGRAM_HEIGHT {
-        for x in 0..(ECHOGRAM_WIDTH - 1) {
-            let dst = ((y * ECHOGRAM_WIDTH + x) * 4) as usize;
-            let src = ((y * ECHOGRAM_WIDTH + x + 1) * 4) as usize;
-            image.data.copy_within(src..src + 4, dst);
-        }
+    // 1. Shift left (Vectorized row copies)
+    let row_width = ECHOGRAM_WIDTH as usize * 4;
+    for y in 0..ECHOGRAM_HEIGHT as usize {
+        let row_start = y * row_width;
+        let row_end = row_start + row_width;
+        image.data.copy_within(row_start + 4..row_end, row_start);
     }
 
-    // 2. Clear right column (Dark deep blue)
+    // 2. Clear right column (Dark deep blue with noise)
+    let mut rng = thread_rng();
     for y in 0..ECHOGRAM_HEIGHT {
         let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-        image.data[i] = 2;
-        image.data[i + 1] = 5;
-        image.data[i + 2] = 15;
+        let noise = rng.gen_range(0..12) as u8; // Background speckle
+        image.data[i] = 2 + noise;
+        image.data[i + 1] = 5 + noise;
+        image.data[i + 2] = 15 + noise;
         image.data[i + 3] = 255;
     }
 
     let t_pos = transducer_tf.translation;
     let half_angle_rad = (TRANSDUCER_CONE_ANGLE / 2.0).to_radians();
+    let side_lobe_angle = (TRANSDUCER_CONE_ANGLE * 1.5).to_radians(); // Wider side lobe
 
     for (fish_tf, profile) in fish_query.iter() {
         let to_fish = fish_tf.translation - t_pos;
@@ -841,10 +990,20 @@ fn echosounder_ping_system(
         let direction = to_fish / distance;
         let angle = direction.dot(Vec3::NEG_Y).acos();
 
-        if angle < half_angle_rad {
-            // BEAM PATTERN: Intensity drops as we move off-axis (Gaussian-ish)
-            let beam_factor = (1.0 - (angle / half_angle_rad)).powi(2);
+        if angle < side_lobe_angle {
+            // BEAM PATTERN: Main lobe + Side lobe (lower gain)
+            let beam_factor = if angle < half_angle_rad {
+                (1.0 - (angle / half_angle_rad)).powi(2)
+            } else {
+                // Side lobe is 10% as strong
+                (1.0 - (angle / side_lobe_angle)).powi(2) * 0.1
+            };
 
+            // ORIENTATION-DEPENDENT SCATTERING
+            // Fish are more reflective when perpendicular to the beam (side-on)
+            let fish_forward = fish_tf.forward().as_vec3();
+            let tilt_factor = 1.0 - direction.dot(fish_forward).abs();
+            
             let depth_ratio = (distance / (TANK_SIZE.y * 3.0)).clamp(0.0, 1.0);
             let y_center = (depth_ratio * (ECHOGRAM_HEIGHT as f32 - 1.0)) as i32;
 
@@ -858,11 +1017,11 @@ fn echosounder_ping_system(
 
                 let i = ((y as u32 * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
 
-                // FALLOFF within the pulse
                 let pulse_factor = 1.0 - (dy.abs() as f32 / pulse_half_width as f32);
                 let intensity = ((profile.target_strength + 65.0) / 45.0).clamp(0.0, 1.0)
                     * beam_factor
-                    * pulse_factor;
+                    * pulse_factor
+                    * tilt_factor;
 
                 // ADDITIVE blending (Multiple fish make a brighter blob)
                 image.data[i] = image.data[i].saturating_add((255.0 * intensity) as u8);
@@ -943,4 +1102,11 @@ fn tint_fish_system(
             already_tinted.insert(entity);
         }
     }
+}
+
+fn sync_cpu_buffer_system(
+    _ui_state: Res<UIState>,
+    _images: ResMut<Assets<Image>>,
+) {
+    // Placeholder for GPU-to-CPU synchronization logic (e.g., Screenshot API)
 }
