@@ -1,16 +1,20 @@
 import os
+import argparse
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms, models
-from torchvision.models import ResNet18_Weights
+from torchvision import transforms
 from PIL import Image
 from glob import glob
 from tqdm import tqdm
-import math
+import numpy as np
 import wandb
 from dotenv import load_dotenv
+
+# Import our modular models
+from models.acoustic import ConvEncoder, TransformerEncoder
+from models.jepa import CrossModalJEPA
 
 # Load environment variables
 load_dotenv()
@@ -26,70 +30,42 @@ class FishDataset(Dataset):
 
     def __getitem__(self, idx):
         vis_path = self.visual_files[idx]
-        ac_path = vis_path.replace("_visual.png", "_acoustic.png")
+        history_path = vis_path.replace("_visual.png", "_history.bin")
         
         vis_img = Image.open(vis_path).convert("RGB")
-        ac_img = Image.open(ac_path).convert("RGB")
+        
+        # Load 32-ping history (32 * 256 bytes)
+        with open(history_path, "rb") as f:
+            raw_data = np.frombuffer(f.read(), dtype=np.uint8).copy()
+            # Ensure it's exactly 32*256 (pad or crop if needed)
+            expected_size = 32 * 256
+            if len(raw_data) < expected_size:
+                raw_data = np.pad(raw_data, (0, expected_size - len(raw_data)))
+            elif len(raw_data) > expected_size:
+                raw_data = raw_data[:expected_size]
+                
+            history_data = torch.from_numpy(raw_data).float() / 255.0
         
         if self.transform:
             vis_img = self.transform(vis_img)
-            ac_img = self.transform(ac_img)
             
-        return vis_img, ac_img
-
-class ProjectionHead(nn.Module):
-    def __init__(self, in_dim, out_dim):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(in_dim, in_dim),
-            nn.BatchNorm1d(in_dim),
-            nn.ReLU(),
-            nn.Linear(in_dim, out_dim)
-        )
-
-    def forward(self, x):
-        return self.net(x)
-
-class DualEncoderCLIP(nn.Module):
-    def __init__(self, embed_dim=256):
-        super().__init__()
-        
-        # 1. Visual Stream (Pre-trained)
-        self.vis_backbone = models.resnet18(weights=ResNet18_Weights.DEFAULT)
-        in_features = self.vis_backbone.fc.in_features
-        self.vis_backbone.fc = nn.Identity() # Remove default head
-        self.vis_proj = ProjectionHead(in_features, embed_dim)
-        
-        # 2. Acoustic Stream (Pre-trained)
-        self.ac_backbone = models.resnet18(weights=ResNet18_Weights.DEFAULT)
-        self.ac_backbone.fc = nn.Identity()
-        self.ac_proj = ProjectionHead(in_features, embed_dim)
-        
-        # 3. Temperature (Initialized to a sensible value)
-        self.logit_scale = nn.Parameter(torch.ones([]) * math.log(1 / 0.07))
-
-    def forward(self, vis, ac):
-        vis_feat = self.vis_backbone(vis)
-        ac_feat = self.ac_backbone(ac)
-        
-        vis_emb = F.normalize(self.vis_proj(vis_feat), p=2, dim=-1)
-        ac_emb = F.normalize(self.ac_proj(ac_feat), p=2, dim=-1)
-        
-        logit_scale = self.logit_scale.exp()
-        logits_per_vis = logit_scale * vis_emb @ ac_emb.t()
-        logits_per_ac = logits_per_vis.t()
-        
-        return logits_per_vis, logits_per_ac
+        return vis_img, history_data
 
 def train():
+    parser = argparse.ArgumentParser(description="Train Fish CLIP Model")
+    parser.add_argument("--model", type=str, choices=["conv", "transformer"], default="conv", help="Acoustic encoder type")
+    parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs")
+    parser.add_argument("--lr", type=float, default=5e-4, help="Learning rate")
+    args = parser.parse_args()
+
     run = wandb.init(
         entity="victoria-university-of-wellington",
         project="depth-learning",
         config={
-            "learning_rate": 5e-4,
-            "architecture": "Dual-ResNet18-MLP",
+            "learning_rate": args.lr,
+            "architecture": f"CLIP-{args.model}",
             "dataset": "Synthetic-Fish-Sim-V2",
-            "epochs": 50,
+            "epochs": args.epochs,
             "embed_dim": 256,
             "batch_size": 32,
         },
@@ -97,11 +73,11 @@ def train():
     config = wandb.config
 
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"--- Starting Refined Training on {device} ---")
+    print(f"--- Starting {args.model.upper()} Training on {device} ---")
     
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
-        transforms.RandomHorizontalFlip(), # Add augmentation
+        transforms.RandomHorizontalFlip(),
         transforms.ColorJitter(brightness=0.1, contrast=0.1),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -116,8 +92,14 @@ def train():
 
     dataloader = DataLoader(dataset, batch_size=config.batch_size, shuffle=True, drop_last=True)
     
-    model = DualEncoderCLIP(embed_dim=config.embed_dim).to(device)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=0.01)
+    # Select Acoustic Encoder
+    if args.model == "conv":
+        ac_encoder = ConvEncoder(embed_dim=config.embed_dim)
+    else:
+        ac_encoder = TransformerEncoder(embed_dim=config.embed_dim)
+
+    model = CrossModalJEPA(ac_encoder=ac_encoder, embed_dim=config.embed_dim).to(device)
+    optimizer = torch.optim.AdamW(filter(lambda p: p.requires_grad, model.parameters()), lr=config.learning_rate, weight_decay=0.01)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.epochs)
     
     for epoch in range(config.epochs):
@@ -129,22 +111,22 @@ def train():
             vis, ac = vis.to(device), ac.to(device)
             optimizer.zero_grad()
             
-            logits_per_vis, logits_per_ac = model(vis, ac)
-            labels = torch.arange(len(vis), device=device)
+            predicted_target, target_latent = model(vis, ac)
             
-            loss_v = F.cross_entropy(logits_per_vis, labels)
-            loss_a = F.cross_entropy(logits_per_ac, labels)
-            loss = (loss_v + loss_a) / 2
+            # Use Cosine Similarity for latent alignment (more stable for unit-normalized vectors)
+            # Loss = 1 - CosineSimilarity (0 is perfect, 2 is worst)
+            cosine_sim = F.cosine_similarity(predicted_target, target_latent, dim=-1)
+            loss = (1.0 - cosine_sim).mean()
             
             loss.backward()
             optimizer.step()
             
             total_loss += loss.item()
-            pbar.set_postfix({"loss": f"{loss.item():.4f}", "temp": f"{model.logit_scale.exp().item():.2f}"})
+            pbar.set_postfix({"loss": f"{loss.item():.4f}", "sim": f"{cosine_sim.mean().item():.3f}"})
             
             wandb.log({
-                "batch_loss": loss.item(), 
-                "temperature": model.logit_scale.exp().item()
+                "batch_loss": loss.item(),
+                "avg_sim": cosine_sim.mean().item()
             })
             
         avg_loss = total_loss / len(dataloader)
@@ -155,7 +137,13 @@ def train():
 
     os.makedirs("weights", exist_ok=True)
     torch.save(model.state_dict(), "weights/fish_clip_model.pth")
-    print("Training complete! Model saved to ml/weights/fish_clip_model.pth")
+    
+    # Save a small config file so serve.py knows which model to load
+    with open("weights/model_config.json", "w") as f:
+        import json
+        json.dump({"model_type": args.model}, f)
+
+    print(f"Training complete! Model ({args.model}) saved to ml/weights/fish_clip_model.pth")
     run.finish()
 
 if __name__ == "__main__":
