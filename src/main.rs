@@ -417,10 +417,13 @@ fn setup_cameras(mut commands: Commands, ui_state: Res<UIState>) {
     commands.spawn((
         Camera3d::default(),
         Projection::Orthographic(OrthographicProjection {
-            scale: 0.1,
+            scale: 5.0,
+            scaling_mode: bevy::render::camera::ScalingMode::FixedVertical {
+                viewport_height: 1.0,
+            },
             ..OrthographicProjection::default_3d()
         }),
-        Transform::from_xyz(0.0, 30.0, 0.0).looking_at(Vec3::ZERO, Vec3::NEG_Z),
+        Transform::from_xyz(0.0, 20.0, 0.0).looking_at(Vec3::ZERO, Vec3::NEG_Z),
         Camera {
             target: RenderTarget::Image(ui_state.bird_eye_texture.clone()),
             ..default()

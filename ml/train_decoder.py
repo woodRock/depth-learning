@@ -15,8 +15,13 @@ from models.decoder import LatentDecoder
 
 class ImageLatentDataset(Dataset):
     def __init__(self, data_dir, transform=None):
-        self.visual_files = sorted(glob(os.path.join(data_dir, "*_visual.png")))
+        all_visuals = sorted(glob(os.path.join(data_dir, "*_visual.png")))
+        self.visual_files = []
         self.transform = transform
+        for v_path in all_visuals:
+            m_path = v_path.replace("_visual.png", "_meta.json")
+            if os.path.exists(m_path):
+                self.visual_files.append(v_path)
 
     def __len__(self):
         return len(self.visual_files)
@@ -77,10 +82,10 @@ def train_decoder():
     dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset"))
     dataloader = DataLoader(ImageLatentDataset(dataset_path, transform=transform), batch_size=16, shuffle=True)
     
-    for epoch in range(20):
+    for epoch in range(50):
         decoder.train()
         total_loss = 0
-        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/20")
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/50")
         
         for img in pbar:
             img = img.to(device)
@@ -94,11 +99,25 @@ def train_decoder():
             optimizer.zero_grad()
             recon_img = decoder(target_latent)
             
-            # Simple MSE on pixels (denormalize img for better visual loss if needed)
-            # For simplicity, we compare against normalized pixels [0,1]
-            # ResNet normalized input needs to be denormalized to compare with Sigmoid output
+            # Target for loss (denormalized to [0,1])
+            target_img = (img * 0.225 + 0.456).clamp(0, 1)
             
-            loss = criterion(recon_img, (img * 0.225 + 0.456)) # Approximate denorm
+            # WEIGHTED LOSS:
+            # We want to penalize errors on fish more than background.
+            # Grid/Background is mostly dark blue. Fish are bright.
+            # Create a mask where pixels are "interesting"
+            with torch.no_grad():
+                # Pixels that are significantly different from the average background
+                mask = (target_img.mean(dim=1, keepdim=True) > 0.15).float()
+                # Give interesting pixels 10x more weight
+                weights = 1.0 + (mask * 9.0)
+            
+            # Weighted MSE
+            loss = (weights * (recon_img - target_img)**2).mean()
+            
+            # Add a small L1 term for sharpness
+            loss += 0.1 * F.l1_loss(recon_img, target_img)
+            
             loss.backward()
             optimizer.step()
             
