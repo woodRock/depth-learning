@@ -32,7 +32,7 @@ class CrossModalJEPA(nn.Module):
         self.classifier = nn.Sequential(
             nn.Linear(embed_dim, 128),
             nn.ReLU(),
-            nn.Linear(128, 3) # 3 Species: Kingfish, Snapper, Cod
+            nn.Linear(128, 4) # 4 Classes: Kingfish, Snapper, Cod, Empty
         )
 
     def forward(self, vis, ac):

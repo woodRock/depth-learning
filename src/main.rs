@@ -16,7 +16,7 @@ use std::thread;
 
 // --- Constants & Config ---
 const TANK_SIZE: Vec3 = Vec3::new(20.0, 10.0, 20.0);
-const FISH_COUNT: usize = 120;
+const FISH_COUNT: usize = 400;
 const TRANSDUCER_CONE_ANGLE: f32 = 12.0;
 const ECHOGRAM_WIDTH: u32 = 512;
 const ECHOGRAM_HEIGHT: u32 = 256;
@@ -57,6 +57,8 @@ enum Species {
     Snapper,
     Kingfish,
     Cod,
+    #[allow(dead_code)]
+    Empty, // Added 4th class
 }
 
 impl Species {
@@ -65,6 +67,7 @@ impl Species {
             Species::Kingfish => (7.0, 9.5),
             Species::Snapper => (3.0, 6.5),
             Species::Cod => (0.0, 2.5),
+            Species::Empty => (0.0, 0.0),
         }
     }
     fn color(&self) -> Color {
@@ -72,6 +75,7 @@ impl Species {
             Species::Kingfish => Color::srgb(0.2, 0.5, 1.0),
             Species::Snapper => Color::srgb(1.0, 0.3, 0.3),
             Species::Cod => Color::srgb(0.5, 0.5, 0.2),
+            Species::Empty => Color::BLACK,
         }
     }
     fn scale(&self) -> f32 {
@@ -79,6 +83,7 @@ impl Species {
             Species::Kingfish => 4.0,
             Species::Snapper => 2.5,
             Species::Cod => 1.8,
+            Species::Empty => 0.0,
         }
     }
     fn target_strength(&self) -> f32 {
@@ -86,6 +91,7 @@ impl Species {
             Species::Kingfish => -35.0,
             Species::Snapper => -42.0,
             Species::Cod => -38.0,
+            Species::Empty => -99.0,
         }
     }
     fn speed(&self) -> f32 {
@@ -93,6 +99,7 @@ impl Species {
             Species::Kingfish => 6.0,
             Species::Snapper => 3.0,
             Species::Cod => 1.5,
+            Species::Empty => 0.0,
         }
     }
     fn jitter_intensity(&self) -> f32 {
@@ -100,6 +107,7 @@ impl Species {
             Species::Kingfish => 0.2,
             Species::Snapper => 0.5,
             Species::Cod => 0.1,
+            Species::Empty => 0.0,
         }
     }
 }
@@ -393,17 +401,20 @@ fn setup_scene(
     }
 
     commands.spawn((
-        PointLight {
-            intensity: 1_000_000.0,
-            range: 100.0,
+        SpotLight {
+            intensity: 5_000_000.0,
+            range: 50.0,
+            inner_angle: 0.0,
+            outer_angle: (TRANSDUCER_CONE_ANGLE / 2.0).to_radians(), // Match sonar beam
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(0.0, 20.0, 0.0),
+        Transform::from_xyz(0.0, 15.0, 0.0).looking_at(Vec3::ZERO, Vec3::NEG_Z),
     ));
+
     commands.insert_resource(AmbientLight {
-        color: Color::srgb(0.1, 0.1, 0.2),
-        brightness: 200.0,
+        color: Color::srgb(0.0, 0.0, 0.05), // Very dark ambient
+        brightness: 5.0,
     });
 }
 
@@ -705,10 +716,14 @@ fn model_inference_system(
     }
 
     let mut gt_dist = Vec::new();
-    for (name, count) in species_counts {
-        gt_dist.push((name, count as f32 / total_fish_in_beam as f32));
+    if total_fish_in_beam == 0 {
+        gt_dist.push(("Empty".to_string(), 1.0));
+    } else {
+        for (name, count) in species_counts {
+            gt_dist.push((name, count as f32 / total_fish_in_beam as f32));
+        }
+        gt_dist.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     }
-    gt_dist.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     inference.ground_truth_dist = gt_dist;
 
     // 3. Trigger Inference (Send current echogram to background thread)

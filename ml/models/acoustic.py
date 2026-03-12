@@ -9,74 +9,96 @@ class Unsqueeze(nn.Module):
     def forward(self, x):
         return x.unsqueeze(self.dim)
 
+class ResBlock2d(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(channels),
+            nn.ReLU(),
+            nn.Conv2d(channels, channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(channels)
+        )
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        return self.relu(x + self.net(x))
+
 class ConvEncoder(nn.Module):
     """
-    2D-CNN Architecture: Optimized for temporal-depth feature detection.
-    Treats the 32-ping history as a 32x256 image.
+    Residual 2D-CNN: Optimized for robust temporal-depth feature extraction.
     """
     def __init__(self, embed_dim=256):
         super().__init__()
-        self.net = nn.Sequential(
+        self.stem = nn.Sequential(
             Unsqueeze(1), # [B, 1, 32, 256]
             nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(2), # [B, 32, 16, 128]
-            
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(2), # [B, 64, 8, 64]
-            
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d((4, 4)), # [B, 128, 4, 4]
-            nn.Flatten() # [B, 2048]
+            nn.ReLU()
         )
         
+        self.layer1 = ResBlock2d(32)
+        self.down1 = nn.MaxPool2d(2) # [B, 32, 16, 128]
+        
+        self.layer2 = ResBlock2d(32)
+        self.down2 = nn.MaxPool2d(2) # [B, 32, 8, 64]
+        
+        self.layer3 = ResBlock2d(32)
+        self.avg_pool = nn.AdaptiveAvgPool2d((4, 4)) # [B, 32, 4, 4]
+        
         self.fc = nn.Sequential(
-            nn.Linear(2048, 512),
+            nn.Flatten(),
+            nn.Linear(32 * 4 * 4, 512),
             nn.ReLU(),
+            nn.Dropout(0.4),
             nn.Linear(512, embed_dim)
         )
 
     def forward(self, x):
-        # x input is [B, 32 * 256] flat history
         x = x.view(-1, 32, 256)
-        return self.net(x)
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.down1(x)
+        x = self.layer2(x)
+        x = self.down2(x)
+        x = self.layer3(x)
+        x = self.avg_pool(x)
+        return self.fc(x)
 
 class TransformerEncoder(nn.Module):
     """
-    Temporal Transformer: Treats each of the 32 pings as a token.
-    Each token contains 256 depth bins.
+    Deep Transformer with Pre-LayerNorm and Residual projection.
     """
-    def __init__(self, embed_dim=256, nhead=8, num_layers=4):
+    def __init__(self, embed_dim=256, nhead=8, num_layers=6):
         super().__init__()
         
-        # Project 256 depth bins down to a 128-dim embedding
         self.ping_proj = nn.Linear(256, 128)
         self.pos_encoding = nn.Parameter(torch.zeros(1, 32, 128))
         
+        # Pre-LayerNorm Transformer
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=128, 
             nhead=nhead, 
             dim_feedforward=512, 
             batch_first=True,
-            dropout=0.1
+            dropout=0.3,
+            norm_first=True # This is Pre-LayerNorm
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
         self.fc = nn.Sequential(
             nn.Flatten(),
             nn.Linear(32 * 128, 512),
+            nn.LayerNorm(512), # Extra stability
             nn.ReLU(),
+            nn.Dropout(0.4),
             nn.Linear(512, embed_dim)
         )
 
     def forward(self, x):
         # x is [B, 32 * 256] -> [B, 32, 256]
         x = x.view(-1, 32, 256)
-        x = self.ping_proj(x) + self.pos_encoding
+        x = self.ping_proj(x)
+        x = x + self.pos_encoding
         x = self.transformer(x)
         return self.fc(x)

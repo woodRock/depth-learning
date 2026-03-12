@@ -99,15 +99,15 @@ async def predict(file: UploadFile = File(...)):
         pil_img.save(buffered, format="PNG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-        # Classification + Smoothing
+        # C. Direct Classification + Smoothing
         probs = F.softmax(species_logits, dim=1).squeeze()
         prediction_history.append(probs)
-        if len(prediction_history) > 10: # Average over last 10 predictions for rock-solid stability
+        if len(prediction_history) > 10: 
             prediction_history.pop(0)
         
         avg_probs = torch.stack(prediction_history).mean(dim=0)
         
-        species_names = ["Kingfish", "Snapper", "Cod"]
+        species_names = ["Kingfish", "Snapper", "Cod", "Empty"]
         scores = []
         for i, name in enumerate(species_names):
             scores.append((name, avg_probs[i].item()))
