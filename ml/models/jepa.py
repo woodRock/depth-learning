@@ -25,27 +25,38 @@ class CrossModalJEPA(nn.Module):
             nn.Linear(embed_dim, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, in_features) # Matches ResNet18 output dim
+            nn.Linear(512, in_features) 
+        )
+
+        # 4. Classifier Head - NEW
+        self.classifier = nn.Sequential(
+            nn.Linear(embed_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 3) # 3 Species: Kingfish, Snapper, Cod
         )
 
     def forward(self, vis, ac):
-        """Returns the predicted visual latent and the actual visual latent for loss calculation"""
-        # Target representation (no gradients)
+        """Returns predicted latent, target latent, and species logits"""
+        # Target representation
         with torch.no_grad():
             target_latent = self.target_encoder(vis)
             target_latent = F.normalize(target_latent, p=2, dim=-1)
-            
+
         # Context representation
         context_latent = self.context_encoder(ac)
-        
-        # Prediction
+
+        # 1. Prediction for Image Reconstruction
         predicted_target = self.predictor(context_latent)
         predicted_target = F.normalize(predicted_target, p=2, dim=-1)
-        
-        return predicted_target, target_latent
+
+        # 2. Classification for Accuracy
+        species_logits = self.classifier(context_latent)
+
+        return predicted_target, target_latent, species_logits
 
     def forward_ac_to_vis_latent(self, ac):
-        """Inference time: generate the visual latent space purely from acoustic data"""
+        """Inference: generate latent + species prediction"""
         context_latent = self.context_encoder(ac)
         predicted_target = self.predictor(context_latent)
-        return F.normalize(predicted_target, p=2, dim=-1)
+        species_logits = self.classifier(context_latent)
+        return F.normalize(predicted_target, p=2, dim=-1), species_logits

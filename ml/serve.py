@@ -28,19 +28,22 @@ transform = transforms.Compose([
 
 model = None
 decoder = None
-prototypes = {}
 history_buffer = None
+ping_count = 0
+prediction_history = [] # For smoothing
 
 @app.on_event("startup")
 async def load_model():
-    global model, decoder, prototypes, history_buffer
+    global model, decoder, history_buffer, ping_count, prediction_history
     weights_path = "weights/fish_clip_model.pth"
     decoder_path = "weights/decoder_model.pth"
     config_path = "weights/model_config.json"
     
     history_buffer = np.zeros((32, 256), dtype=np.float32)
+    ping_count = 0
+    prediction_history = []
     
-    # 1. Load JEPA Model
+    # Load JEPA Model
     model_type = "conv"
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
@@ -54,72 +57,63 @@ async def load_model():
     model.to(device)
     model.eval()
 
-    # 2. Load Decoder
+    # Load Decoder
     decoder = LatentDecoder()
     if os.path.exists(decoder_path):
         decoder.load_state_dict(torch.load(decoder_path, map_location=device))
-        print("Decoder loaded successfully.")
     decoder.to(device)
     decoder.eval()
     
-    # 3. Learn Prototypes
-    dataset_path = "../dataset"
-    species_samples = {} 
-    meta_files = glob(os.path.join(dataset_path, "*_meta.json"))
-    for meta_path in meta_files:
-        with open(meta_path, 'r') as f:
-            meta = json.load(f)
-            species = meta["dominant_species"]
-            vis_path = meta_path.replace("_meta.json", "_visual.png")
-            if os.path.exists(vis_path):
-                img = Image.open(vis_path).convert("RGB")
-                tensor = transform(img).unsqueeze(0).to(device)
-                with torch.no_grad():
-                    emb = model.target_encoder(tensor)
-                    if species not in species_samples:
-                        species_samples[species] = []
-                    species_samples[species].append(emb)
-
-    for species, embs in species_samples.items():
-        if len(embs) > 0:
-            avg_emb = torch.mean(torch.stack(embs), dim=0)
-            prototypes[species] = F.normalize(avg_emb, p=2, dim=-1)
+    print(f"Server ready with {model_type.upper()} model + Smoothing.")
 
 @app.post("/predict_acoustic")
 async def predict(file: UploadFile = File(...)):
-    global history_buffer
+    global history_buffer, ping_count, prediction_history
     contents = await file.read()
     image = Image.open(io.BytesIO(contents)).convert("RGB")
     
     img_np = np.array(image)
     latest_ping_v = img_np[:, -1, 0].astype(np.float32) / 255.0
+    
     history_buffer = np.roll(history_buffer, -1, axis=0)
     history_buffer[-1, :] = latest_ping_v
+    ping_count += 1
     
+    # Warm-up phase
+    if ping_count < 16:
+        return {
+            "predictions": [("Warm-up...", 0.0)],
+            "generated_image": ""
+        }
+
     history_flat = torch.from_numpy(history_buffer.flatten()).unsqueeze(0).to(device)
     
     with torch.no_grad():
-        # A. Predict Latent
-        vis_latent = model.forward_ac_to_vis_latent(history_flat)
+        vis_latent, species_logits = model.forward_ac_to_vis_latent(history_flat)
         
-        # B. Generate Image from Latent
-        gen_img_tensor = decoder(vis_latent) # [1, 3, 224, 224]
-        
-        # C. Convert to base64 string for Bevy
+        # Generation
+        gen_img_tensor = decoder(vis_latent)
         gen_img_np = (gen_img_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
         pil_img = Image.fromarray(gen_img_np)
         buffered = io.BytesIO()
         pil_img.save(buffered, format="PNG")
         img_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-        # D. Calculate Similarity Scores
-        scores = {}
-        for species, proto_emb in prototypes.items():
-            sim = (vis_latent @ proto_emb.t()).item()
-            scores[species] = sim
+        # Classification + Smoothing
+        probs = F.softmax(species_logits, dim=1).squeeze()
+        prediction_history.append(probs)
+        if len(prediction_history) > 10: # Average over last 10 predictions for rock-solid stability
+            prediction_history.pop(0)
+        
+        avg_probs = torch.stack(prediction_history).mean(dim=0)
+        
+        species_names = ["Kingfish", "Snapper", "Cod"]
+        scores = []
+        for i, name in enumerate(species_names):
+            scores.append((name, avg_probs[i].item()))
             
     return {
-        "predictions": sorted(scores.items(), key=lambda x: x[1], reverse=True),
+        "predictions": sorted(scores, key=lambda x: x[1], reverse=True),
         "generated_image": img_base64
     }
 
