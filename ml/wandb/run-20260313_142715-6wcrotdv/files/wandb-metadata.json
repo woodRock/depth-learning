@@ -1,0 +1,36 @@
+{
+  "os":  "macOS-15.5-arm64-arm-64bit",
+  "python":  "CPython 3.9.6",
+  "startedAt":  "2026-03-13T01:27:15.095828Z",
+  "program":  "/Users/woodj/Desktop/depth-learning/ml/train_decoder.py",
+  "codePath":  "ml/train_decoder.py",
+  "codePathLocal":  "train_decoder.py",
+  "git":  {
+    "remote":  "git@github.com:woodRock/depth-learning.git",
+    "commit":  "8a87b2b91f7baa00ac8136ac9ad76477617bfee6"
+  },
+  "email":  "j.r.h.wood98@gmail.com",
+  "root":  "/Users/woodj/Desktop/depth-learning/ml",
+  "host":  "Jesses-MacBook-Air.local",
+  "executable":  "/Library/Developer/CommandLineTools/usr/bin/python3",
+  "cpu_count":  8,
+  "cpu_count_logical":  8,
+  "disk":  {
+    "/":  {
+      "total":  "245107195904",
+      "used":  "238787457024"
+    }
+  },
+  "memory":  {
+    "total":  "17179869184"
+  },
+  "apple":  {
+    "name":  "Apple M2",
+    "ecpuCores":  4,
+    "pcpuCores":  4,
+    "gpuCores":  8,
+    "memoryGb":  16,
+    "ramTotalBytes":  "17179869184"
+  },
+  "writerId":  "luw86ytwvpyutokov8c9rnpai8dqtfaa"
+}

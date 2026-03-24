@@ -17,6 +17,7 @@ use std::thread;
 // --- Constants & Config ---
 const TANK_SIZE: Vec3 = Vec3::new(20.0, 10.0, 20.0);
 const FISH_COUNT: usize = 400;
+const SCHOOL_COUNT: usize = 16; // Number of fish schools (~25 fish/school)
 const TRANSDUCER_CONE_ANGLE: f32 = 12.0;
 const ECHOGRAM_WIDTH: u32 = 512;
 const ECHOGRAM_HEIGHT: u32 = 256;
@@ -57,8 +58,7 @@ enum Species {
     Snapper,
     Kingfish,
     Cod,
-    #[allow(dead_code)]
-    Empty, // Added 4th class
+    Empty, 
 }
 
 impl Species {
@@ -115,12 +115,17 @@ impl Species {
 #[derive(Component)]
 struct AcousticProfile {
     target_strength: f32,
+    ts_phase: f32, // Random phase for time-varying TS
 }
 
 #[derive(Component)]
 struct Boid {
     velocity: Vec3,
-    phase_offset: f32, // For unique swimming "rhythm"
+    acceleration: Vec3,
+    max_speed: f32,
+    max_force: f32,
+    phase_offset: f32,
+    school_id: u32,  // Changed from usize to u32 for Bevy compatibility
 }
 
 #[derive(Component)]
@@ -135,7 +140,7 @@ struct Transducer;
 #[derive(serde::Deserialize)]
 struct PredictionResponse {
     pub predictions: Vec<(String, f32)>,
-    pub generated_image: String, // base64
+    pub generated_image: String, 
 }
 
 #[derive(Resource)]
@@ -151,7 +156,6 @@ struct CameraSettings {
     pub pitch: f32,
     pub yaw: f32,
     pub center: Vec3,
-    // Target values for smoothing
     pub target_radius: f32,
     pub target_pitch: f32,
     pub target_yaw: f32,
@@ -180,7 +184,7 @@ struct DatasetExporter {
     pub frame_count: u32,
     pub export_path: String,
     pub is_exporting: bool,
-    pub ping_history: VecDeque<Vec<u8>>, // Stores the last 32 pings
+    pub ping_history: VecDeque<Vec<u8>>,
 }
 
 impl Default for DatasetExporter {
@@ -194,13 +198,10 @@ impl Default for DatasetExporter {
     }
 }
 
-// --- Main App ---
-
 fn main() {
     let (tx_img, rx_img) = unbounded::<Vec<u8>>();
     let (tx_preds, rx_preds) = unbounded::<PredictionResponse>();
 
-    // Spawn inference background thread
     thread::spawn(move || {
         let client = reqwest::blocking::Client::new();
         while let Ok(png_bytes) = rx_img.recv() {
@@ -256,10 +257,7 @@ fn main() {
         .run();
 }
 
-// --- Setup Systems ---
-
 fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    // 1. Echogram Texture
     let echo_size = Extent3d {
         width: ECHOGRAM_WIDTH,
         height: ECHOGRAM_HEIGHT,
@@ -293,7 +291,6 @@ fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image
     };
     let echo_handle = images.add(echo_image);
 
-    // 2. Bird's Eye Render Target
     let bird_size = Extent3d {
         width: BIRD_EYE_WIDTH,
         height: BIRD_EYE_HEIGHT,
@@ -317,7 +314,6 @@ fn setup_render_textures(mut commands: Commands, mut images: ResMut<Assets<Image
     };
     let bird_handle = images.add(bird_image);
 
-    // 3. Generated Visual Texture
     let gen_image = Image::new_fill(
         Extent3d {
             width: 224,
@@ -344,7 +340,6 @@ fn setup_scene(
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    // Sea Floor Grid
     for i in -5..=5 {
         let x = i as f32 * 4.0;
         commands.spawn((
@@ -370,34 +365,58 @@ fn setup_scene(
 
     let fish_handle = asset_server.load("models/fish.glb#Scene0");
 
+    // Create schools with balanced species distribution
     let mut rng = thread_rng();
-    for _ in 0..FISH_COUNT {
-        let species = match rng.gen_range(0..3) {
-            0 => Species::Kingfish,
-            1 => Species::Snapper,
-            _ => Species::Cod,
-        };
+    let mut school_centers: Vec<(Vec3, Species)> = Vec::with_capacity(SCHOOL_COUNT);
+    
+    // Equal schools per species for balanced dataset
+    let species_list = [Species::Kingfish, Species::Snapper, Species::Cod];
+    for i in 0..SCHOOL_COUNT {
+        let species = species_list[i % 3];  // Cycle through species
         let (min_y, max_y) = species.preferred_depth_range();
-        let pos = Vec3::new(
-            rng.gen_range(-TANK_SIZE.x / 2.0..TANK_SIZE.x / 2.0),
+        let center = Vec3::new(
+            rng.gen_range(-TANK_SIZE.x / 2.0 + 2.0..TANK_SIZE.x / 2.0 - 2.0),
             rng.gen_range(min_y..max_y) - TANK_SIZE.y / 2.0,
-            rng.gen_range(-TANK_SIZE.z / 2.0..TANK_SIZE.z / 2.0),
+            rng.gen_range(-TANK_SIZE.z / 2.0 + 2.0..TANK_SIZE.z / 2.0 - 2.0),
         );
+        school_centers.push((center, species));
+    }
+    school_centers.shuffle(&mut rng);
 
-        commands.spawn((
-            SceneRoot(fish_handle.clone()),
-            Transform::from_translation(pos).with_scale(Vec3::splat(species.scale())),
-            species,
-            AcousticProfile {
-                target_strength: species.target_strength(),
-            },
-            Boid {
-                velocity: Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0))
-                    .normalize()
-                    * species.speed(),
-                phase_offset: rng.gen_range(0.0..std::f32::consts::TAU),
-            },
-        ));
+    // Distribute fish among schools
+    let fish_per_school = FISH_COUNT / SCHOOL_COUNT;
+    
+    for (school_id, (school_center, species)) in school_centers.iter().enumerate() {
+        for _ in 0..fish_per_school {
+            // Cluster fish around school center
+            let spread = 2.5;
+            let pos = Vec3::new(
+                school_center.x + rng.gen_range(-spread..spread),
+                (school_center.y + rng.gen_range(-0.8..0.8)).clamp(-TANK_SIZE.y/2.0, TANK_SIZE.y/2.0),
+                school_center.z + rng.gen_range(-spread..spread),
+            );
+
+            let speed = species.speed();
+            let school_direction = Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0)).normalize();
+            
+            commands.spawn((
+                SceneRoot(fish_handle.clone()),
+                Transform::from_translation(pos).with_scale(Vec3::splat(species.scale())),
+                *species,
+                AcousticProfile {
+                    target_strength: species.target_strength(),
+                    ts_phase: rng.gen_range(0.0..std::f32::consts::TAU),
+                },
+                Boid {
+                    velocity: school_direction * speed * rng.gen_range(0.9..1.1),
+                    acceleration: Vec3::ZERO,
+                    max_speed: speed * 1.2,
+                    max_force: 0.1,
+                    phase_offset: rng.gen_range(0.0..std::f32::consts::TAU),
+                    school_id: school_id as u32,
+                },
+            ));
+        }
     }
 
     commands.spawn((
@@ -405,7 +424,7 @@ fn setup_scene(
             intensity: 5_000_000.0,
             range: 50.0,
             inner_angle: 0.0,
-            outer_angle: (TRANSDUCER_CONE_ANGLE / 2.0).to_radians(), // Match sonar beam
+            outer_angle: (TRANSDUCER_CONE_ANGLE / 2.0).to_radians(),
             shadows_enabled: true,
             ..default()
         },
@@ -413,7 +432,7 @@ fn setup_scene(
     ));
 
     commands.insert_resource(AmbientLight {
-        color: Color::srgb(0.0, 0.0, 0.05), // Very dark ambient
+        color: Color::srgb(0.0, 0.0, 0.05),
         brightness: 5.0,
     });
 }
@@ -454,10 +473,9 @@ fn ui_tiled_windows_system(
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
     let generated_id = contexts.add_image(ui_state.generated_visual_texture.clone());
 
-    // 1. TOP STATUS BAR
     egui::TopBottomPanel::top("top_status").show(contexts.ctx_mut(), |ui| {
         ui.horizontal(|ui| {
-            ui.heading("🐟 DeepFish Sim-In-Loop Analytics");
+            ui.heading("\u{1f41f} DeepFish Sim-In-Loop Analytics");
             ui.separator();
             ui.label(format!("Frames: {}", exporter.frame_count));
             ui.separator();
@@ -474,15 +492,14 @@ fn ui_tiled_windows_system(
         });
     });
 
-    // 2. BOTTOM CONTROL TOOLBAR
     egui::TopBottomPanel::bottom("bottom_controls").show(contexts.ctx_mut(), |ui| {
         ui.add_space(5.0);
         ui.horizontal(|ui| {
             if ui
                 .button(if exporter.is_exporting {
-                    "🔴 Stop Recording"
+                    "\u{1f534} Stop Recording"
                 } else {
-                    "⏺ Start Recording [R]"
+                    "\u{23fa} Start Recording [R]"
                 })
                 .clicked()
             {
@@ -496,20 +513,16 @@ fn ui_tiled_windows_system(
         ui.add_space(5.0);
     });
 
-    // 3. CENTRAL QUADRANT GRID
     egui::CentralPanel::default()
         .frame(egui::Frame::none().inner_margin(0.0))
         .show(contexts.ctx_mut(), |ui| {
-            // Remove spacing between rows/cols
             ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
 
             let total_h = ui.available_height();
             let half_h = total_h / 2.0;
 
             ui.columns(2, |cols| {
-                // --- LEFT COLUMN (Simulation & AI) ---
                 cols[0].vertical(|ui| {
-                    // Q1: 3D SIMULATION SPACE
                     ui.group(|ui| {
                         ui.set_min_height(half_h);
                         ui.set_max_height(half_h);
@@ -519,7 +532,6 @@ fn ui_tiled_windows_system(
                         });
                     });
 
-                    // Q3: AI ANALYSIS & METRICS
                     ui.group(|ui| {
                         ui.set_min_height(half_h);
                         ui.set_max_height(half_h);
@@ -552,7 +564,7 @@ fn ui_tiled_windows_system(
                                                 .desired_width(150.0),
                                         ); 
                                         if is_dominant {
-                                            ui.label("🎯");
+                                            ui.label("\u{1f3af}");
                                         }
                                     });
                                 }
@@ -563,10 +575,7 @@ fn ui_tiled_windows_system(
                             ui.label(egui::RichText::new("AI IMAGE RECONSTRUCTION").strong());
                             ui.add_space(10.0);
 
-                            // Centered Horizontal Layout for Images
                             ui.horizontal(|ui| {
-                                // Calculate centering: (Total Width - Content Width) / 2
-                                // content: Sonar(40) + Gen(120) + GT(120) + Spacing(2*20) = 320
                                 let available = ui.available_width();
                                 let content_w = 320.0;
                                 let padding = ((available - content_w) / 2.0).max(0.0);
@@ -606,9 +615,7 @@ fn ui_tiled_windows_system(
                     });
                 });
 
-                // --- RIGHT COLUMN (Visual GT & Echosounder) ---
                 cols[1].vertical(|ui| {
-                    // Q2: BIRD'S EYE (GROUND TRUTH)
                     ui.group(|ui| {
                         ui.set_min_height(half_h);
                         ui.set_max_height(half_h);
@@ -633,7 +640,6 @@ fn ui_tiled_windows_system(
                         });
                     });
 
-                    // Q4: ECHOSOUNDER (AI INPUT)
                     ui.group(|ui| {
                         ui.set_min_height(half_h);
                         ui.set_max_height(half_h);
@@ -661,11 +667,9 @@ fn model_inference_system(
     transducer_query: Query<&Transform, With<Transducer>>,
     fish_query: Query<(&Transform, &Species)>,
 ) {
-    // 1. Process any incoming predictions from the background thread
     while let Ok(resp) = channels.rx_preds.try_recv() {
         inference.predictions = resp.predictions.clone();
         
-        // Update Accuracy
         if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
             let top_gt_name = top_gt.clone();
             if let Some((top_pred, _)) = resp.predictions.first() {
@@ -676,7 +680,6 @@ fn model_inference_system(
             }
         }
 
-        // DECODE THE GENERATED IMAGE
         if let Ok(bytes) = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &resp.generated_image) {
             if let Ok(decoded) = image::load_from_memory(&bytes) {
                 let rgba = decoded.to_rgba8();
@@ -692,7 +695,6 @@ fn model_inference_system(
         return;
     }
 
-    // 2. Calculate Ground Truth Distribution
     let Ok(transducer_tf) = transducer_query.get_single() else {
         return;
     };
@@ -726,7 +728,6 @@ fn model_inference_system(
     }
     inference.ground_truth_dist = gt_dist;
 
-    // 3. Trigger Inference (Send current echogram to background thread)
     let Some(img) = images.get(&ui_state.echogram_texture) else {
         return;
     };
@@ -734,7 +735,6 @@ fn model_inference_system(
         return;
     };
     
-    // Convert to PNG in a temporary buffer (still on main thread, but fast)
     let mut buffer = std::io::Cursor::new(Vec::new());
     if dynamic_img
         .to_rgba8()
@@ -756,7 +756,6 @@ fn dataset_exporter_system(
     inference: Res<InferenceResult>,
     _bird_eye_camera: Query<Entity, With<BirdEyeCamera>>,
 ) {
-    // 1. Handle Toggles
     if keys.just_pressed(KeyCode::KeyR) {
         exporter.is_exporting = !exporter.is_exporting;
         if exporter.is_exporting {
@@ -771,20 +770,20 @@ fn dataset_exporter_system(
         trigger_manual = true;
     }
 
-    // 2. Continuous update of history (every frame)
     if let Some(img) = images.get(&ui_state.echogram_texture) {
-        let mut latest_ping = Vec::new();
+        let mut latest_ping_rgb = Vec::new();
         for y in 0..ECHOGRAM_HEIGHT {
             let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-            latest_ping.push(img.data[i]);
+            latest_ping_rgb.push(img.data[i]);
+            latest_ping_rgb.push(img.data[i + 1]);
+            latest_ping_rgb.push(img.data[i + 2]);
         }
-        exporter.ping_history.push_back(latest_ping);
+        exporter.ping_history.push_back(latest_ping_rgb);
         if exporter.ping_history.len() > 32 {
             exporter.ping_history.pop_front();
         }
     }
 
-    // 3. Export Logic
     if (exporter.is_exporting && inference.timer.just_finished()) || trigger_manual {
         exporter.frame_count += 1;
         let frame = exporter.frame_count;
@@ -794,11 +793,9 @@ fn dataset_exporter_system(
             let _ = std::fs::create_dir_all(&export_path);
         }
 
-        // --- A. Capture Visual (Bevy 0.15 Async Screenshot) ---
         let vis_path = format!("{}/frame_{:04}_visual.png", export_path, frame);
         commands.spawn(Screenshot::image(ui_state.bird_eye_texture.clone())).observe(save_to_disk(vis_path));
 
-        // --- B. Capture Acoustic ---
         let ac_img = images.get(&ui_state.echogram_texture).and_then(|img| {
             img.clone().try_into_dynamic().ok().map(|d| d.to_rgba8())
         });
@@ -807,14 +804,12 @@ fn dataset_exporter_system(
         for ping in &exporter.ping_history {
             full_history.extend_from_slice(ping);
         }
-        while full_history.len() < 32 * ECHOGRAM_HEIGHT as usize {
+        while full_history.len() < 32 * ECHOGRAM_HEIGHT as usize * 3 {
             full_history.push(0);
         }
 
-        // --- C. Capture Metadata ---
         let top_species = inference.ground_truth_dist.first().map(|(s, _)| s.clone());
 
-        // --- D. Offload remaining tasks to background ---
         thread::spawn(move || {
             if let Some(data) = ac_img {
                 let path = format!("{}/frame_{:04}_acoustic.png", export_path, frame);
@@ -846,23 +841,18 @@ fn camera_controller_system(
 ) {
     let mut transform = query.single_mut();
 
-    // 1. Zoom (Scroll / Pinch)
     for event in mouse_wheel_events.read() {
         if keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight) {
-            // Side scroll/trackpad horizontal can pan
             settings.target_center.x -= event.x * 0.5;
             settings.target_center.z -= event.y * 0.5;
         } else {
             let zoom_delta = event.y * 2.0;
             settings.target_radius -= zoom_delta;
             settings.target_radius = settings.target_radius.clamp(5.0, 100.0);
-
-            // Trackpad horizontal scroll = Yaw orbit
             settings.target_yaw -= event.x * 0.05;
         }
     }
 
-    // 2. Rotation (Left Click + Drag)
     if mouse_buttons.pressed(MouseButton::Left) {
         for event in mouse_motion_events.read() {
             settings.target_yaw -= event.delta.x * 0.005;
@@ -873,11 +863,9 @@ fn camera_controller_system(
     }
     settings.target_pitch = settings.target_pitch.clamp(-1.5, 1.5);
 
-    // 3. Panning (WASD / Arrows)
     let mut pan_vec = Vec3::ZERO;
     let pan_speed = 20.0 * time.delta_secs();
 
-    // Get camera relative axes
     let forward = transform.forward().as_vec3();
     let right = transform.right().as_vec3();
     let forward_flat = Vec3::new(forward.x, 0.0, forward.z).normalize_or_zero();
@@ -898,7 +886,6 @@ fn camera_controller_system(
 
     settings.target_center += pan_vec * pan_speed;
 
-    // 4. Reset View
     if keys.just_pressed(KeyCode::Space) {
         settings.target_radius = 30.0;
         settings.target_pitch = 0.5;
@@ -906,14 +893,12 @@ fn camera_controller_system(
         settings.target_center = Vec3::ZERO;
     }
 
-    // 5. Apply Smoothing (Lerp)
     let smoothing = 10.0 * time.delta_secs();
     settings.radius = settings.radius.lerp(settings.target_radius, smoothing);
     settings.pitch = settings.pitch.lerp(settings.target_pitch, smoothing);
     settings.yaw = settings.yaw.lerp(settings.target_yaw, smoothing);
     settings.center = settings.center.lerp(settings.target_center, smoothing);
 
-    // Calculate final transform
     let rotation = Quat::from_rotation_y(settings.yaw) * Quat::from_rotation_x(-settings.pitch);
     let offset = rotation.mul_vec3(Vec3::new(0.0, 0.0, settings.radius));
 
@@ -921,31 +906,93 @@ fn camera_controller_system(
     transform.look_at(settings.center, Vec3::Y);
 }
 
-fn boid_movement_system(time: Res<Time>, mut query: Query<(&mut Transform, &Boid, &Species)>) {
+fn boid_movement_system(
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &mut Boid, &Species)>,
+) {
+    let dt = time.delta_secs();
     let t = time.elapsed_secs();
-    for (mut transform, boid, species) in query.iter_mut() {
-        // Base movement
-        transform.translation += boid.velocity * time.delta_secs();
-        
-        // Vertical Jitter/Wobble
-        let jitter = (t * 2.0 + boid.phase_offset).sin() * species.jitter_intensity() * 0.1;
+
+    let boid_data: Vec<(Vec3, Vec3, Species, u32)> = query
+        .iter()
+        .map(|(tf, b, s)| (tf.translation, b.velocity, *s, b.school_id))
+        .collect();
+
+    for (mut transform, mut boid, species) in query.iter_mut() {
+        let pos = transform.translation;
+        let mut separation = Vec3::ZERO;
+        let mut alignment = Vec3::ZERO;
+        let mut cohesion = Vec3::ZERO;
+        let mut neighbor_count = 0;
+
+        let perception_radius = 5.0;
+        let separation_distance = 1.5;
+
+        for (other_pos, other_vel, _other_species, other_school) in &boid_data {
+            // Stronger interaction within same school
+            let is_schoolmate = *other_school == boid.school_id;
+            let interaction_radius = if is_schoolmate {
+                perception_radius * 1.5
+            } else {
+                perception_radius
+            };
+
+            let dist = pos.distance(*other_pos);
+            if dist > 0.0 && dist < interaction_radius {
+                if dist < separation_distance {
+                    let diff = pos - *other_pos;
+                    separation += diff.normalize_or_zero() / dist;
+                }
+                // Stronger alignment/cohesion for schoolmates
+                let weight = if is_schoolmate { 2.0 } else { 0.5 };
+                alignment += *other_vel * weight;
+                cohesion += *other_pos * weight;
+                neighbor_count += 1;
+            }
+        }
+
+        let mut acceleration = Vec3::ZERO;
+
+        if neighbor_count > 0 {
+            let count_f = neighbor_count as f32;
+            alignment = (alignment / count_f).normalize_or_zero() * boid.max_speed;
+            let steer_align = (alignment - boid.velocity).clamp_length_max(boid.max_force);
+            acceleration += steer_align * 1.5;
+
+            cohesion = (cohesion / count_f - pos).normalize_or_zero() * boid.max_speed;
+            let steer_cohere = (cohesion - boid.velocity).clamp_length_max(boid.max_force);
+            acceleration += steer_cohere * 1.0;
+
+            if separation.length_squared() > 0.0 {
+                separation = (separation / count_f).normalize_or_zero() * boid.max_speed;
+                let steer_sep = (separation - boid.velocity).clamp_length_max(boid.max_force * 1.2);
+                acceleration += steer_sep * 2.0;
+            }
+        }
+
+        let forward_drive = boid.velocity.normalize_or_zero() * 0.1;
+        acceleration += forward_drive;
+
+        // Depth keeping with small migration
+        let (min_y, max_y) = species.preferred_depth_range();
+        let target_y = (min_y + max_y) / 2.0 - TANK_SIZE.y / 2.0;
+        let depth_error = target_y - pos.y;
+        acceleration.y += depth_error * 0.5;
+
+        boid.acceleration = acceleration;
+        boid.velocity += acceleration * dt;
+        boid.velocity = boid.velocity.clamp_length_max(boid.max_speed);
+
+        let jitter = (t * 2.0 + boid.phase_offset).sin() * species.jitter_intensity() * 0.02;
+
+        transform.translation += boid.velocity * dt;
         transform.translation.y += jitter;
 
         if boid.velocity.length_squared() > 0.001 {
             let target = transform.translation + boid.velocity;
             transform.look_at(target, Vec3::Y);
+            transform.rotate_local_y(std::f32::consts::PI);
         }
-
-        // Species-specific depth adherence
-        let (min_y, max_y) = species.preferred_depth_range();
-        let current_y = transform.translation.y + TANK_SIZE.y / 2.0;
-        let mut correction = 0.0;
-        if current_y < min_y {
-            correction = 0.1;
-        } else if current_y > max_y {
-            correction = -0.1;
-        }
-        transform.translation.y += correction * time.delta_secs();
     }
 }
 
@@ -967,6 +1014,7 @@ fn boundary_wrapping_system(mut query: Query<&mut Transform, With<Boid>>) {
 }
 
 fn echosounder_ping_system(
+    time: Res<Time>,
     transducer_query: Query<&Transform, With<Transducer>>,
     fish_query: Query<(&Transform, &AcousticProfile)>,
     ui_state: Res<UIState>,
@@ -979,7 +1027,9 @@ fn echosounder_ping_system(
         return;
     };
 
-    // 1. Shift left (Vectorized row copies)
+    let t = time.elapsed_secs();
+
+    // Shift existing echogram data left (scrolling effect)
     let row_width = ECHOGRAM_WIDTH as usize * 4;
     for y in 0..ECHOGRAM_HEIGHT as usize {
         let row_start = y * row_width;
@@ -987,11 +1037,14 @@ fn echosounder_ping_system(
         image.data.copy_within(row_start + 4..row_end, row_start);
     }
 
-    // 2. Clear right column (Dark deep blue with noise)
+    // Initialize new ping column with depth-dependent noise
     let mut rng = thread_rng();
     for y in 0..ECHOGRAM_HEIGHT {
         let i = ((y * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-        let noise = rng.gen_range(0..12) as u8; // Background speckle
+        let depth_ratio = y as f32 / ECHOGRAM_HEIGHT as f32;
+        // More noise near surface and bottom
+        let noise_mult = 1.0 + 0.3 * (depth_ratio * (1.0 - depth_ratio)).sin().abs();
+        let noise = (rng.gen_range(0..12) as f32 * noise_mult) as u8;
         image.data[i] = 2 + noise;
         image.data[i + 1] = 5 + noise;
         image.data[i + 2] = 15 + noise;
@@ -1000,7 +1053,7 @@ fn echosounder_ping_system(
 
     let t_pos = transducer_tf.translation;
     let half_angle_rad = (TRANSDUCER_CONE_ANGLE / 2.0).to_radians();
-    let side_lobe_angle = (TRANSDUCER_CONE_ANGLE * 1.5).to_radians(); // Wider side lobe
+    let side_lobe_angle = (TRANSDUCER_CONE_ANGLE * 1.5).to_radians();
 
     for (fish_tf, profile) in fish_query.iter() {
         let to_fish = fish_tf.translation - t_pos;
@@ -1009,23 +1062,25 @@ fn echosounder_ping_system(
         let angle = direction.dot(Vec3::NEG_Y).acos();
 
         if angle < side_lobe_angle {
-            // BEAM PATTERN: Main lobe + Side lobe (lower gain)
+            // Main lobe and side lobe response
             let beam_factor = if angle < half_angle_rad {
                 (1.0 - (angle / half_angle_rad)).powi(2)
             } else {
-                // Side lobe is 10% as strong
                 (1.0 - (angle / side_lobe_angle)).powi(2) * 0.1
             };
 
-            // ORIENTATION-DEPENDENT SCATTERING
-            // Fish are more reflective when perpendicular to the beam (side-on)
+            // Orientation-dependent scattering
             let fish_forward = fish_tf.forward().as_vec3();
             let tilt_factor = 1.0 - direction.dot(fish_forward).abs();
-            
+
+            // Time-varying TS (fish orientation changes, ±15% variation)
+            let ts_variation = 0.85 + 0.15 * (t * 2.0 + profile.ts_phase).sin();
+
+            // Depth-based position
             let depth_ratio = (distance / (TANK_SIZE.y * 3.0)).clamp(0.0, 1.0);
             let y_center = (depth_ratio * (ECHOGRAM_HEIGHT as f32 - 1.0)) as i32;
 
-            // PULSE STRETCHING: Draw a small vertical "blob" instead of a pixel
+            // Pulse stretching (vertical blob)
             let pulse_half_width = 3;
             for dy in -pulse_half_width..=pulse_half_width {
                 let y = y_center + dy;
@@ -1034,14 +1089,13 @@ fn echosounder_ping_system(
                 }
 
                 let i = ((y as u32 * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
-
                 let pulse_factor = 1.0 - (dy.abs() as f32 / pulse_half_width as f32);
-                let intensity = ((profile.target_strength + 65.0) / 45.0).clamp(0.0, 1.0)
-                    * beam_factor
-                    * pulse_factor
-                    * tilt_factor;
 
-                // ADDITIVE blending (Multiple fish make a brighter blob)
+                // Original intensity formula with TS variation
+                let intensity = ((profile.target_strength + 65.0) / 45.0).clamp(0.0, 1.0)
+                    * beam_factor * pulse_factor * tilt_factor * ts_variation;
+
+                // ADDITIVE blending with original yellowish color ratios
                 image.data[i] = image.data[i].saturating_add((255.0 * intensity) as u8);
                 image.data[i + 1] = image.data[i + 1].saturating_add((200.0 * intensity) as u8);
                 image.data[i + 2] = image.data[i + 2].saturating_add((50.0 * intensity) as u8);
@@ -1064,7 +1118,6 @@ fn set_camera_viewports(
     let height = window.resolution.physical_height();
     let scale = window.resolution.scale_factor();
 
-    // The central grid occupies the space between the top status bar and bottom toolbar
     let top_bar_h = (32.0 * scale) as u32;
     let bottom_bar_h = (40.0 * scale) as u32;
 
@@ -1072,7 +1125,6 @@ fn set_camera_viewports(
         .saturating_sub(top_bar_h)
         .saturating_sub(bottom_bar_h);
 
-    // Top-Left Quadrant
     camera.viewport = Some(bevy::render::camera::Viewport {
         physical_position: UVec2::new(0, top_bar_h),
         physical_size: UVec2::new(width / 2, available_h / 2),
@@ -1095,10 +1147,8 @@ fn tint_fish_system(
         let mut stack: Vec<Entity> = children.iter().copied().collect();
         while let Some(child_entity) = stack.pop() {
             if let Ok(mut mat_comp) = mesh_query.get_mut(child_entity) {
-                // Get the current shared material
                 let current_handle = mat_comp.0.clone();
                 if let Some(shared_mat) = materials.get(&current_handle) {
-                    // Create a unique clone for this specific fish species
                     let mut unique_mat = shared_mat.clone();
                     unique_mat.base_color_texture = None;
                     unique_mat.base_color = species.color();
@@ -1106,7 +1156,6 @@ fn tint_fish_system(
                     unique_mat.metallic = 0.1;
                     unique_mat.perceptual_roughness = 0.5;
 
-                    // Assign the unique material back to the entity
                     mat_comp.0 = materials.add(unique_mat);
                     tinted_something = true;
                 }
@@ -1126,5 +1175,4 @@ fn sync_cpu_buffer_system(
     _ui_state: Res<UIState>,
     _images: ResMut<Assets<Image>>,
 ) {
-    // Placeholder for GPU-to-CPU synchronization logic (e.g., Screenshot API)
 }

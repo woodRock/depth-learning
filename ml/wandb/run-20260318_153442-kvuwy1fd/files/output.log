@@ -1,0 +1,50 @@
+Balanced Dataset: 998 Fish frames, 2 Empty frames.
+Epoch 1 [Train]: 100%|████████████████████████████████████| 31/31 [00:12<00:00,  2.43it/s, acc=55.9%]
+Epoch 1: Val Acc: 57.2%
+Epoch 2 [Train]: 100%|████████████████████████████████████| 31/31 [00:12<00:00,  2.46it/s, acc=72.8%]
+Epoch 2: Val Acc: 84.4%
+Epoch 3 [Train]:  19%|███████▏                             | 6/31 [00:02<00:10,  2.37it/s, acc=87.0%]
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 106, in <module>
+    if __name__ == "__main__":
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 65, in train
+    pbar = tqdm(train_loader, desc=f"Epoch {epoch+1} [Train]")
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 734, in __next__
+    data = self._next_data()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 790, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 52, in fetch
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 52, in <listcomp>
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 69, in __getitem__
+    vis_img = Image.open(vis_path).convert("RGB")
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/PIL/Image.py", line 998, in convert
+    return self.copy()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/PIL/Image.py", line 1276, in copy
+    return self._new(self.im.copy())
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 106, in <module>
+    if __name__ == "__main__":
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 65, in train
+    pbar = tqdm(train_loader, desc=f"Epoch {epoch+1} [Train]")
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 734, in __next__
+    data = self._next_data()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 790, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 52, in fetch
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 52, in <listcomp>
+    data = [self.dataset[idx] for idx in possibly_batched_index]
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 69, in __getitem__
+    vis_img = Image.open(vis_path).convert("RGB")
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/PIL/Image.py", line 998, in convert
+    return self.copy()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/PIL/Image.py", line 1276, in copy
+    return self._new(self.im.copy())
+KeyboardInterrupt

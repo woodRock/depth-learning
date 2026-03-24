@@ -1,0 +1,154 @@
+--- Starting AST Multi-Task Training on mps ---
+Balanced Dataset: 1001 Fish frames, 0 Empty frames.
+Balanced Dataset: 1001 Fish frames, 0 Empty frames.
+Dataset Split: 400 Train samples, 201 Val samples.
+Epoch 1/50 [Train]: 100%|█████████████████████| 12/12 [00:05<00:00,  2.27it/s, loss=1.424, acc=65.1%]
+Epoch 1 Results: Train Acc: 65.1% | Val Acc: 55.7% | Val Sim: 0.585
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 2/50 [Train]: 100%|█████████████████████| 12/12 [00:05<00:00,  2.15it/s, loss=1.315, acc=68.0%]
+Epoch 2 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.611
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 3/50 [Train]: 100%|█████████████████████| 12/12 [00:05<00:00,  2.09it/s, loss=1.478, acc=68.2%]
+Epoch 3 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 4/50 [Train]: 100%|█████████████████████| 12/12 [00:05<00:00,  2.14it/s, loss=1.069, acc=67.7%]
+Epoch 4 Results: Train Acc: 67.7% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 5/50 [Train]: 100%|█████████████████████| 12/12 [00:05<00:00,  2.05it/s, loss=1.043, acc=68.0%]
+Epoch 5 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 6/50 [Train]: 100%|█████████████████████| 12/12 [00:06<00:00,  1.92it/s, loss=1.297, acc=68.5%]
+Epoch 6 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 7/50 [Train]: 100%|█████████████████████| 12/12 [00:06<00:00,  1.73it/s, loss=1.362, acc=68.2%]
+Epoch 7 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 8/50 [Train]: 100%|█████████████████████| 12/12 [00:06<00:00,  1.97it/s, loss=1.263, acc=68.0%]
+Epoch 8 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 9/50 [Train]: 100%|█████████████████████| 12/12 [00:07<00:00,  1.69it/s, loss=1.324, acc=68.8%]
+Epoch 9 Results: Train Acc: 68.8% | Val Acc: 55.7% | Val Sim: 0.611
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 10/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.68it/s, loss=1.239, acc=68.0%]
+Epoch 10 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 11/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.64it/s, loss=1.271, acc=68.5%]
+Epoch 11 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 12/50 [Train]: 100%|████████████████████| 12/12 [00:08<00:00,  1.48it/s, loss=1.066, acc=68.5%]
+Epoch 12 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 13/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.51it/s, loss=1.331, acc=68.0%]
+Epoch 13 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 14/50 [Train]: 100%|████████████████████| 12/12 [00:09<00:00,  1.24it/s, loss=1.027, acc=68.2%]
+Epoch 14 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 15/50 [Train]: 100%|████████████████████| 12/12 [00:09<00:00,  1.21it/s, loss=1.420, acc=68.8%]
+Epoch 15 Results: Train Acc: 68.8% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 16/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.53it/s, loss=1.028, acc=67.7%]
+Epoch 16 Results: Train Acc: 67.7% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 17/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.88it/s, loss=1.034, acc=68.2%]
+Epoch 17 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 18/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.87it/s, loss=1.177, acc=68.0%]
+Epoch 18 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 19/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.85it/s, loss=1.092, acc=67.2%]
+Epoch 19 Results: Train Acc: 67.2% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 20/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.75it/s, loss=1.296, acc=68.0%]
+Epoch 20 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 21/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.87it/s, loss=1.220, acc=68.5%]
+Epoch 21 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.616
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 22/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.69it/s, loss=1.247, acc=68.2%]
+Epoch 22 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 23/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.89it/s, loss=1.183, acc=67.2%]
+Epoch 23 Results: Train Acc: 67.2% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 24/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.86it/s, loss=1.293, acc=67.4%]
+Epoch 24 Results: Train Acc: 67.4% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 25/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.90it/s, loss=1.266, acc=69.3%]
+Epoch 25 Results: Train Acc: 69.3% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 26/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.94it/s, loss=1.205, acc=68.0%]
+Epoch 26 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 27/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.92it/s, loss=1.441, acc=67.7%]
+Epoch 27 Results: Train Acc: 67.7% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 28/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.88it/s, loss=1.030, acc=68.5%]
+Epoch 28 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 29/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.93it/s, loss=0.996, acc=68.2%]
+Epoch 29 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.616
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 30/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.99it/s, loss=1.187, acc=68.5%]
+Epoch 30 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 31/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.87it/s, loss=1.344, acc=68.2%]
+Epoch 31 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 32/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.95it/s, loss=1.227, acc=68.0%]
+Epoch 32 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 33/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.91it/s, loss=1.058, acc=68.5%]
+Epoch 33 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 34/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.90it/s, loss=1.077, acc=67.2%]
+Epoch 34 Results: Train Acc: 67.2% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 35/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.92it/s, loss=1.209, acc=67.2%]
+Epoch 35 Results: Train Acc: 67.2% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 36/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.67it/s, loss=1.257, acc=68.5%]
+Epoch 36 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 37/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.93it/s, loss=1.102, acc=68.8%]
+Epoch 37 Results: Train Acc: 68.8% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 38/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.96it/s, loss=0.962, acc=68.0%]
+Epoch 38 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.616
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 39/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.90it/s, loss=1.132, acc=68.0%]
+Epoch 39 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 40/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.77it/s, loss=1.221, acc=68.8%]
+Epoch 40 Results: Train Acc: 68.8% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 41/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.75it/s, loss=0.937, acc=68.0%]
+Epoch 41 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.617
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 42/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.92it/s, loss=1.170, acc=69.0%]
+Epoch 42 Results: Train Acc: 69.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 43/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.77it/s, loss=1.038, acc=69.0%]
+Epoch 43 Results: Train Acc: 69.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 44/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.82it/s, loss=1.088, acc=68.0%]
+Epoch 44 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 45/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.86it/s, loss=1.270, acc=67.7%]
+Epoch 45 Results: Train Acc: 67.7% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 46/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.78it/s, loss=1.314, acc=68.0%]
+Epoch 46 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 47/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.68it/s, loss=1.281, acc=68.2%]
+Epoch 47 Results: Train Acc: 68.2% | Val Acc: 55.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 48/50 [Train]: 100%|████████████████████| 12/12 [00:07<00:00,  1.71it/s, loss=1.144, acc=66.9%]
+Epoch 48 Results: Train Acc: 66.9% | Val Acc: 55.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 49/50 [Train]: 100%|████████████████████| 12/12 [00:08<00:00,  1.37it/s, loss=1.086, acc=68.0%]
+Epoch 49 Results: Train Acc: 68.0% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)
+Epoch 50/50 [Train]: 100%|████████████████████| 12/12 [00:06<00:00,  1.72it/s, loss=0.955, acc=68.5%]
+Epoch 50 Results: Train Acc: 68.5% | Val Acc: 55.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 55.7%)

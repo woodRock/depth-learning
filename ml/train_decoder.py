@@ -90,12 +90,12 @@ def train_decoder():
         for img in pbar:
             img = img.to(device)
             
-            # 1. Get Visual Latent from frozen ResNet
+            # 1. Get Spatial Visual Latent [B, 512, 7, 7]
             with torch.no_grad():
                 target_latent = jepa.target_encoder(img)
-                target_latent = F.normalize(target_latent, p=2, dim=-1)
+                target_latent = F.normalize(target_latent, p=2, dim=1)
             
-            # 2. Reconstruct image from latent
+            # 2. Reconstruct image from spatial latent
             optimizer.zero_grad()
             recon_img = decoder(target_latent)
             

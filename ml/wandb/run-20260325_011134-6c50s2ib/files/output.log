@@ -1,0 +1,94 @@
+--- Starting TRANSFORMER Multi-Task Training on mps ---
+Balanced Dataset: 1000 Fish frames, 0 Empty frames.
+Balanced Dataset: 1000 Fish frames, 0 Empty frames.
+Dataset Split: 400 Train samples, 200 Val samples.
+/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/transformer.py:392: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+Epoch 1/80 [Train]: 100%|████████| 12/12 [00:28<00:00,  2.37s/it, loss=1.545, acc=22.4%, lr=6.00e-05]
+Epoch 1 Results: Train Acc: 22.4% | Val Acc: 7.5% | Val Sim: 0.096
+  val_acc_Kingfish: 100.0%
+  val_acc_Snapper: 0.0%
+  val_acc_Cod: 0.0%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 7.5%, Sim: 0.096)
+Epoch 2/80 [Train]: 100%|████████| 12/12 [00:27<00:00,  2.32s/it, loss=1.087, acc=50.5%, lr=1.20e-04]
+Epoch 2 Results: Train Acc: 50.5% | Val Acc: 22.5% | Val Sim: 0.403
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 100.0%
+  val_acc_Cod: 0.0%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 22.5%, Sim: 0.403)
+Epoch 3/80 [Train]: 100%|████████| 12/12 [00:27<00:00,  2.32s/it, loss=0.905, acc=73.2%, lr=1.80e-04]
+Epoch 3 Results: Train Acc: 73.2% | Val Acc: 22.5% | Val Sim: 0.556
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 100.0%
+  val_acc_Cod: 0.0%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 22.5%, Sim: 0.556)
+Epoch 4/80 [Train]: 100%|████████| 12/12 [00:30<00:00,  2.54s/it, loss=0.687, acc=76.8%, lr=2.40e-04]
+Epoch 4 Results: Train Acc: 76.8% | Val Acc: 22.5% | Val Sim: 0.585
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 100.0%
+  val_acc_Cod: 0.0%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 22.5%, Sim: 0.585)
+Epoch 5/80 [Train]: 100%|████████| 12/12 [00:29<00:00,  2.43s/it, loss=0.611, acc=76.3%, lr=3.00e-04]
+Epoch 5 Results: Train Acc: 76.3% | Val Acc: 26.5% | Val Sim: 0.603
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 100.0%
+  val_acc_Cod: 5.7%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 26.5%, Sim: 0.603)
+Epoch 6/80 [Train]: 100%|████████| 12/12 [00:28<00:00,  2.40s/it, loss=0.753, acc=77.3%, lr=2.99e-04]
+Epoch 6 Results: Train Acc: 77.3% | Val Acc: 82.0% | Val Sim: 0.602
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 80.0%
+  val_acc_Cod: 91.4%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 82.0%, Sim: 0.602)
+Epoch 7/80 [Train]: 100%|████████| 12/12 [00:28<00:00,  2.39s/it, loss=0.631, acc=76.0%, lr=2.98e-04]
+Epoch 7 Results: Train Acc: 76.0% | Val Acc: 82.5% | Val Sim: 0.607
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 73.3%
+  val_acc_Cod: 94.3%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 82.5%, Sim: 0.607)
+Epoch 8/80 [Train]: 100%|████████| 12/12 [00:28<00:00,  2.38s/it, loss=0.665, acc=78.1%, lr=2.96e-04]
+Epoch 8 Results: Train Acc: 78.1% | Val Acc: 83.0% | Val Sim: 0.604
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 73.3%
+  val_acc_Cod: 95.0%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 83.0%, Sim: 0.604)
+Epoch 9/80 [Train]: 100%|████████| 12/12 [00:28<00:00,  2.38s/it, loss=0.763, acc=77.6%, lr=2.94e-04]
+Epoch 9 Results: Train Acc: 77.6% | Val Acc: 72.0% | Val Sim: 0.603
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 93.3%
+  val_acc_Cod: 72.9%
+  val_acc_Empty: 0.0%
+Epoch 10/80 [Train]: 100%|███████| 12/12 [00:28<00:00,  2.39s/it, loss=0.736, acc=76.3%, lr=2.93e-04]
+Epoch 10 Results: Train Acc: 76.3% | Val Acc: 81.0% | Val Sim: 0.605
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 57.8%
+  val_acc_Cod: 97.1%
+  val_acc_Empty: 0.0%
+Epoch 11/80 [Train]: 100%|███████| 12/12 [00:28<00:00,  2.39s/it, loss=0.637, acc=74.0%, lr=2.90e-04]
+Epoch 11 Results: Train Acc: 74.0% | Val Acc: 82.0% | Val Sim: 0.604
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 64.4%
+  val_acc_Cod: 96.4%
+  val_acc_Empty: 0.0%
+Epoch 12/80 [Train]: 100%|███████| 12/12 [00:28<00:00,  2.41s/it, loss=0.625, acc=76.8%, lr=2.88e-04]
+Epoch 12 Results: Train Acc: 76.8% | Val Acc: 84.5% | Val Sim: 0.607
+  val_acc_Kingfish: 20.0%
+  val_acc_Snapper: 71.1%
+  val_acc_Cod: 95.7%
+  val_acc_Empty: 0.0%
+--> Saved New Best Model (Val Acc: 84.5%, Sim: 0.607)
+Epoch 13/80 [Train]: 100%|███████| 12/12 [00:28<00:00,  2.41s/it, loss=0.650, acc=79.2%, lr=2.85e-04]
+Epoch 13 Results: Train Acc: 79.2% | Val Acc: 82.0% | Val Sim: 0.606
+  val_acc_Kingfish: 0.0%
+  val_acc_Snapper: 71.1%
+  val_acc_Cod: 94.3%
+  val_acc_Empty: 0.0%
+Epoch 14/80 [Train]: 100%|███████| 12/12 [00:08<00:00,  2.07it/s, loss=0.644, acc=76.6%, lr=2.83e-04]

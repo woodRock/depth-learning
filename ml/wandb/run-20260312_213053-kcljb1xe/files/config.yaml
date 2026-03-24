@@ -1,0 +1,64 @@
+_wandb:
+    value:
+        cli_version: 0.24.2
+        e:
+            jadlkt5xdrnjymsjwl5spc7ut9qa38kl:
+                apple:
+                    ecpuCores: 4
+                    gpuCores: 8
+                    memoryGb: 16
+                    name: Apple M2
+                    pcpuCores: 4
+                    ramTotalBytes: "17179869184"
+                args:
+                    - --model
+                    - transformer
+                codePath: ml/train.py
+                codePathLocal: train.py
+                cpu_count: 8
+                cpu_count_logical: 8
+                disk:
+                    /:
+                        total: "245107195904"
+                        used: "232409092096"
+                email: j.r.h.wood98@gmail.com
+                executable: /Library/Developer/CommandLineTools/usr/bin/python3
+                git:
+                    commit: 8a87b2b91f7baa00ac8136ac9ad76477617bfee6
+                    remote: git@github.com:woodRock/depth-learning.git
+                host: Jesses-MacBook-Air.local
+                memory:
+                    total: "17179869184"
+                os: macOS-15.5-arm64-arm-64bit
+                program: /Users/woodj/Desktop/depth-learning/ml/train.py
+                python: CPython 3.9.6
+                root: /Users/woodj/Desktop/depth-learning/ml
+                startedAt: "2026-03-12T08:30:53.238313Z"
+                writerId: jadlkt5xdrnjymsjwl5spc7ut9qa38kl
+        m: []
+        python_version: 3.9.6
+        t:
+            "1":
+                - 1
+                - 41
+            "2":
+                - 1
+                - 41
+            "3":
+                - 16
+            "4": 3.9.6
+            "5": 0.24.2
+            "12": 0.24.2
+            "13": darwin-arm64
+architecture:
+    value: JEPA-transformer
+batch_size:
+    value: 32
+dataset:
+    value: Synthetic-Fish-Sim-V2
+embed_dim:
+    value: 256
+epochs:
+    value: 50
+learning_rate:
+    value: 0.0005

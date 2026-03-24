@@ -1,0 +1,141 @@
+--- Starting TRANSFORMER Multi-Task Training on mps ---
+Balanced Dataset: 1001 Fish frames, 0 Empty frames.
+Balanced Dataset: 1001 Fish frames, 0 Empty frames.
+/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/transformer.py:392: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+Epoch 1/50 [Train]: 100%|█████████████████████| 25/25 [00:16<00:00,  1.53it/s, loss=1.469, acc=64.2%]
+Epoch 1 Results: Train Acc: 64.2% | Val Acc: 63.7% | Val Sim: 0.609
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 2/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.59it/s, loss=1.251, acc=65.6%]
+Epoch 2 Results: Train Acc: 65.6% | Val Acc: 63.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 3/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.57it/s, loss=1.317, acc=65.9%]
+Epoch 3 Results: Train Acc: 65.9% | Val Acc: 58.7% | Val Sim: 0.615
+Epoch 4/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.63it/s, loss=1.215, acc=64.8%]
+Epoch 4 Results: Train Acc: 64.8% | Val Acc: 63.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 5/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.64it/s, loss=1.201, acc=66.0%]
+Epoch 5 Results: Train Acc: 66.0% | Val Acc: 63.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 6/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.63it/s, loss=1.246, acc=65.9%]
+Epoch 6 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.612
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 7/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.64it/s, loss=1.135, acc=65.9%]
+Epoch 7 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 8/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.65it/s, loss=1.084, acc=65.9%]
+Epoch 8 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.613
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 9/50 [Train]: 100%|█████████████████████| 25/25 [00:15<00:00,  1.65it/s, loss=1.184, acc=65.9%]
+Epoch 9 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 10/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.65it/s, loss=1.235, acc=65.9%]
+Epoch 10 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 11/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.65it/s, loss=1.263, acc=65.9%]
+Epoch 11 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+--> Saved New Best Model (Val Acc: 63.7%)
+Epoch 12/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.65it/s, loss=1.236, acc=65.1%]
+Epoch 12 Results: Train Acc: 65.1% | Val Acc: 62.7% | Val Sim: 0.615
+Epoch 13/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.64it/s, loss=1.213, acc=65.9%]
+Epoch 13 Results: Train Acc: 65.9% | Val Acc: 66.2% | Val Sim: 0.615
+--> Saved New Best Model (Val Acc: 66.2%)
+Epoch 14/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.66it/s, loss=1.206, acc=65.8%]
+Epoch 14 Results: Train Acc: 65.8% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 15/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.66it/s, loss=1.077, acc=66.6%]
+Epoch 15 Results: Train Acc: 66.6% | Val Acc: 63.7% | Val Sim: 0.616
+Epoch 16/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.63it/s, loss=1.256, acc=65.8%]
+Epoch 16 Results: Train Acc: 65.8% | Val Acc: 63.7% | Val Sim: 0.613
+Epoch 17/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.62it/s, loss=1.085, acc=65.4%]
+Epoch 17 Results: Train Acc: 65.4% | Val Acc: 63.7% | Val Sim: 0.616
+Epoch 18/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.63it/s, loss=1.299, acc=65.9%]
+Epoch 18 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 19/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.63it/s, loss=1.188, acc=65.9%]
+Epoch 19 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 20/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.60it/s, loss=1.237, acc=65.8%]
+Epoch 20 Results: Train Acc: 65.8% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 21/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.58it/s, loss=1.187, acc=65.9%]
+Epoch 21 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.613
+Epoch 22/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.58it/s, loss=1.246, acc=65.9%]
+Epoch 22 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+Epoch 23/50 [Train]: 100%|████████████████████| 25/25 [00:16<00:00,  1.54it/s, loss=1.190, acc=65.8%]
+Epoch 23 Results: Train Acc: 65.8% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 24/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.61it/s, loss=1.038, acc=65.9%]
+Epoch 24 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+Epoch 25/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.64it/s, loss=1.248, acc=65.9%]
+Epoch 25 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+Epoch 26/50 [Train]: 100%|████████████████████| 25/25 [00:15<00:00,  1.65it/s, loss=1.295, acc=65.9%]
+Epoch 26 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 27/50 [Train]: 100%|████████████████████| 25/25 [00:13<00:00,  1.80it/s, loss=1.212, acc=65.9%]
+Epoch 27 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.613
+Epoch 28/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  1.97it/s, loss=1.145, acc=66.0%]
+Epoch 28 Results: Train Acc: 66.0% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 29/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.04it/s, loss=1.214, acc=66.0%]
+Epoch 29 Results: Train Acc: 66.0% | Val Acc: 63.7% | Val Sim: 0.614
+Epoch 30/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.07it/s, loss=1.564, acc=65.6%]
+Epoch 30 Results: Train Acc: 65.6% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 31/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.06it/s, loss=1.331, acc=65.9%]
+Epoch 31 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 32/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.07it/s, loss=1.330, acc=65.9%]
+Epoch 32 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+Epoch 33/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.02it/s, loss=1.248, acc=66.0%]
+Epoch 33 Results: Train Acc: 66.0% | Val Acc: 63.7% | Val Sim: 0.617
+Epoch 34/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  1.96it/s, loss=1.175, acc=65.9%]
+Epoch 34 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.616
+Epoch 35/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.03it/s, loss=0.975, acc=65.8%]
+Epoch 35 Results: Train Acc: 65.8% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 36/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.07it/s, loss=1.187, acc=65.9%]
+Epoch 36 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.616
+Epoch 37/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.06it/s, loss=1.091, acc=65.5%]
+Epoch 37 Results: Train Acc: 65.5% | Val Acc: 63.7% | Val Sim: 0.614
+Epoch 38/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.07it/s, loss=1.160, acc=65.6%]
+Epoch 38 Results: Train Acc: 65.6% | Val Acc: 63.7% | Val Sim: 0.616
+Epoch 39/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.02it/s, loss=1.137, acc=65.9%]
+Epoch 39 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 40/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.00it/s, loss=1.233, acc=66.1%]
+Epoch 40 Results: Train Acc: 66.1% | Val Acc: 63.7% | Val Sim: 0.617
+Epoch 41/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  1.98it/s, loss=0.976, acc=65.8%]
+Epoch 41 Results: Train Acc: 65.8% | Val Acc: 63.7% | Val Sim: 0.615
+Epoch 42/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.00it/s, loss=1.044, acc=65.9%]
+Epoch 42 Results: Train Acc: 65.9% | Val Acc: 63.7% | Val Sim: 0.614
+Epoch 43/50 [Train]:  84%|████████████████▊   | 21/25 [00:10<00:02,  1.99it/s, loss=1.284, acc=65.9%]
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 250, in <module>
+    train()
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 177, in train
+    for vis, ac, labels in pbar:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 734, in __next__
+    data = self._next_data()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 790, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 50, in fetch
+    data = self.dataset.__getitems__(possibly_batched_index)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in __getitems__
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in <listcomp>
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 83, in __getitem__
+    noise = np.random.normal(0, 0.02, data.shape)
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 250, in <module>
+    train()
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 177, in train
+    for vis, ac, labels in pbar:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 734, in __next__
+    data = self._next_data()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 790, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 50, in fetch
+    data = self.dataset.__getitems__(possibly_batched_index)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in __getitems__
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in <listcomp>
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 83, in __getitem__
+    noise = np.random.normal(0, 0.02, data.shape)
+KeyboardInterrupt

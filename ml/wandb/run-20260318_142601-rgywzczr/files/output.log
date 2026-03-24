@@ -1,0 +1,34 @@
+Balanced Dataset: 1001 Fish frames, 0 Empty frames.
+Epoch 1 [Train]: 100%|████████████████████████████████████| 31/31 [00:14<00:00,  2.17it/s, acc=63.0%]
+Epoch 1: Val Acc: 65.4%
+Epoch 2 [Train]: 100%|████████████████████████████████████| 31/31 [00:12<00:00,  2.41it/s, acc=65.5%]
+Epoch 2: Val Acc: 65.4%
+Epoch 3 [Train]: 100%|████████████████████████████████████| 31/31 [00:12<00:00,  2.45it/s, acc=65.3%]
+Epoch 3: Val Acc: 65.4%
+Epoch 4 [Train]: 100%|████████████████████████████████████| 31/31 [00:12<00:00,  2.45it/s, acc=65.1%]
+Epoch 4: Val Acc: 65.4%
+Epoch 5 [Train]: 100%|████████████████████████████████████| 31/31 [00:14<00:00,  2.07it/s, acc=65.5%]
+Epoch 5: Val Acc: 65.4%
+Epoch 6 [Train]: 100%|████████████████████████████████████| 31/31 [00:15<00:00,  2.06it/s, acc=65.4%]
+Epoch 6: Val Acc: 65.4%
+Epoch 7 [Train]: 100%|████████████████████████████████████| 31/31 [00:14<00:00,  2.08it/s, acc=65.2%]
+Epoch 7: Val Acc: 65.4%
+Epoch 8 [Train]: 100%|████████████████████████████████████| 31/31 [00:15<00:00,  1.96it/s, acc=65.7%]
+Epoch 8: Val Acc: 65.4%
+Epoch 9 [Train]: 100%|████████████████████████████████████| 31/31 [00:18<00:00,  1.72it/s, acc=65.7%]
+Epoch 9: Val Acc: 65.4%
+Epoch 10 [Train]: 100%|███████████████████████████████████| 31/31 [00:18<00:00,  1.67it/s, acc=65.8%]
+Epoch 10: Val Acc: 65.4%
+Epoch 11 [Train]: 100%|███████████████████████████████████| 31/31 [00:17<00:00,  1.74it/s, acc=65.3%]
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 106, in <module>
+    train()
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 96, in train
+    val_correct += (preds == labels).sum().item()
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 106, in <module>
+    train()
+  File "/Users/woodj/Desktop/depth-learning/ml/train_fusion.py", line 96, in train
+    val_correct += (preds == labels).sum().item()
+KeyboardInterrupt
