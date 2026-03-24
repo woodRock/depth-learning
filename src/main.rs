@@ -29,6 +29,50 @@ const POPULATION_CYCLE_PERIOD: f32 = 120.0; // Seconds for full cycle
 const MIN_ACTIVE_RATIO: f32 = 0.3;  // Minimum % of schools active
 const MAX_ACTIVE_RATIO: f32 = 1.0;  // Maximum % of schools active
 
+// Difficulty modes
+#[derive(Resource, Default)]
+struct DifficultyMode {
+    current: usize,  // 0=Easy, 1=Medium, 2=Hard
+    names: Vec<&'static str>,
+}
+
+impl DifficultyMode {
+    fn new() -> Self {
+        Self {
+            current: 2,  // Start on Hard (current behavior)
+            names: vec!["Easy", "Medium", "Hard"],
+        }
+    }
+    
+    fn cycle(&mut self) {
+        self.current = (self.current + 1) % self.names.len();
+    }
+    
+    fn name(&self) -> &'static str {
+        self.names[self.current]
+    }
+    
+    // Easy: All fish swim same direction, no heading changes
+    fn heading_change_interval(&self) -> f32 {
+        match self.current {
+            0 => f32::INFINITY,  // Easy: Never change
+            1 => 90.0,           // Medium: Every 90s
+            2 => 30.0,           // Hard: Every 30-90s
+            _ => 60.0,
+        }
+    }
+    
+    // Easy: All schools same direction, Medium: Some variation, Hard: Full independence
+    fn school_independence(&self) -> f32 {
+        match self.current {
+            0 => 0.0,    // Easy: All same
+            1 => 0.5,    // Medium: Some variation
+            2 => 1.0,    // Hard: Full independence
+            _ => 1.0,
+        }
+    }
+}
+
 #[derive(Resource)]
 struct DynamicPopulation {
     pub active_schools: Vec<bool>,  // Which schools are currently active
@@ -266,6 +310,7 @@ fn main() {
         .init_resource::<DatasetExporter>()
         .init_resource::<InferenceResult>()
         .init_resource::<DynamicPopulation>()
+        .insert_resource(DifficultyMode::new())  // Add difficulty mode resource
         .add_systems(
             Startup,
             (setup_render_textures, setup_scene, setup_cameras).chain(),
@@ -283,8 +328,9 @@ fn main() {
                 set_camera_viewports,
                 tint_fish_system,
                 sync_cpu_buffer_system,
-                update_population_system,  // NEW: Dynamic population control
-                update_school_headings_system,  // NEW: Gradual heading changes
+                update_population_system,
+                update_school_headings_system,
+                difficulty_mode_system,  // NEW: Handle difficulty switching
             ),
         )
         .run();
@@ -504,6 +550,7 @@ fn ui_tiled_windows_system(
     ui_state: Res<UIState>,
     mut exporter: ResMut<DatasetExporter>,
     inference: Res<InferenceResult>,
+    difficulty: Res<DifficultyMode>,
 ) {
     let bird_eye_id = contexts.add_image(ui_state.bird_eye_texture.clone());
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
@@ -514,6 +561,19 @@ fn ui_tiled_windows_system(
             ui.heading("\u{1f41f} DeepFish Sim-In-Loop Analytics");
             ui.separator();
             ui.label(format!("Frames: {}", exporter.frame_count));
+            ui.separator();
+            // Display difficulty mode
+            let difficulty_color = match difficulty.current {
+                0 => egui::Color32::LIGHT_GREEN,   // Easy = green
+                1 => egui::Color32::YELLOW,        // Medium = yellow
+                2 => egui::Color32::LIGHT_RED,     // Hard = red
+                _ => egui::Color32::WHITE,
+            };
+            ui.label(
+                egui::RichText::new(format!("🎯 {} Mode", difficulty.name()))
+                    .color(difficulty_color)
+                    .strong(),
+            );
             ui.separator();
             let acc = if inference.total_count > 0 {
                 (inference.correct_count as f32 / inference.total_count as f32) * 100.0
@@ -543,7 +603,7 @@ fn ui_tiled_windows_system(
             }
             ui.separator();
             ui.label(
-                "Orbit: L-Click Drag | Pan: WASD | Zoom: Scroll | Reset: Space | Single Export: E",
+                "Orbit: L-Click Drag | Pan: WASD | Zoom: Scroll | Reset: Space | Single Export: E | Mode: [M]",
             );
         });
         ui.add_space(5.0);
@@ -1286,13 +1346,32 @@ fn update_population_system(
     }
 }
 
+/// Handle difficulty mode switching (press M key)
+fn difficulty_mode_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut difficulty: ResMut<DifficultyMode>,
+) {
+    if keys.just_pressed(KeyCode::KeyM) {
+        difficulty.cycle();
+        println!("🎯 Difficulty changed to: {}", difficulty.name());
+    }
+}
+
 /// Gradually change school headings over time for direction invariance
 /// Only updates base_heading - actual velocity is handled by boid_movement_system
 fn update_school_headings_system(
     time: Res<Time>,
+    difficulty: Res<DifficultyMode>,
     mut fish_query: Query<(&mut Boid, &Species)>,
 ) {
     let dt = time.delta_secs();
+    let base_interval = difficulty.heading_change_interval();
+    let independence = difficulty.school_independence();
+    
+    // Easy mode: No heading changes
+    if base_interval.is_infinite() {
+        return;
+    }
     
     // Collect unique school IDs and their current state
     let mut school_data: std::collections::HashMap<u32, (Vec3, f32)> = std::collections::HashMap::new();
@@ -1314,14 +1393,15 @@ fn update_school_headings_system(
         
         new_timer += dt;
         
-        // Change heading every 30-90 seconds (randomized per school)
-        let change_interval = 30.0 + (*school_id as f32 * 7.5);
+        // Medium/Hard: Vary interval per school based on independence
+        let school_variance = (*school_id as f32 * 7.5) * independence;
+        let change_interval = base_interval + school_variance;
         
         if new_timer > change_interval {
             new_timer = 0.0;
             
-            // Gradually rotate heading by 15-45 degrees
-            let rotation_angle = (*school_id as f32 * 0.3 + 0.5).sin() * 0.5;  // -0.5 to 0.5 radians
+            // Rotation angle depends on independence (Easy=0, Hard=full)
+            let rotation_angle = (*school_id as f32 * 0.3 + 0.5).sin() * 0.5 * independence;
             
             // Rotate around Y axis (horizontal plane)
             let sin_a = rotation_angle.sin();
