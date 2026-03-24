@@ -1,2 +1,24 @@
 /target
 .env
+
+# Model weights
+ml/weights/*.pth
+ml/weights/*.bin
+ml/weights/*.onnx
+!ml/weights/.gitkeep
+
+# WandB logs
+ml/wandb/
+
+# Python artifacts
+ml/__pycache__/
+ml/*.pyc
+ml/venv/
+ml/.venv/
+
+# Dataset (generated data)
+dataset/*.png
+dataset/*.bin
+dataset/*.json
+!dataset/.gitkeep
+
