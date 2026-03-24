@@ -56,10 +56,10 @@ class SIGReg(nn.Module):
 class Embedder(nn.Module):
     """
     Embeds input sequences into latent space.
-    Input: (B, 32*256*3) flattened echogram history
-    Output: (B, T, embed_dim) where T=32 timesteps
+    Input: (B, 64*256*3) flattened echogram history
+    Output: (B, T, embed_dim) where T=64 timesteps
     """
-    def __init__(self, input_dim=24576, embed_dim=256, n_timesteps=32):
+    def __init__(self, input_dim=49152, embed_dim=256, n_timesteps=64):
         super().__init__()
         self.n_timesteps = n_timesteps
         self.embed_dim = embed_dim
@@ -77,14 +77,14 @@ class Embedder(nn.Module):
     def forward(self, x):
         """
         Args:
-            x: (B, 24576) flattened input (32 timesteps × 768 features)
+            x: (B, 49152) flattened input (64 timesteps × 768 features)
             
         Returns:
             embeddings: (B, T, embed_dim)
         """
         B = x.shape[0]
         
-        # Reshape to (B, T, timestep_dim) = (B, 32, 768)
+        # Reshape to (B, T, timestep_dim) = (B, 64, 768)
         x = x.view(B, self.n_timesteps, self.timestep_dim)
         
         # Project to embed_dim
@@ -253,8 +253,8 @@ class LeWorldModel(nn.Module):
     def __init__(
         self,
         embed_dim=256,          # Latent embedding dimension
-        n_timesteps=32,         # Number of timesteps in input
-        num_layers=6,           # Number of transformer layers in predictor
+        n_timesteps=64,         # Number of timesteps in input (64 for better temporal modeling)
+        num_layers=8,           # Number of transformer layers (increased for 64 timesteps)
         num_heads=8,            # Number of attention heads
         mlp_ratio=4.0,          # MLP hidden dim ratio
         drop=0.1,               # Dropout rate

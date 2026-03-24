@@ -117,6 +117,23 @@ class FishDataset(Dataset):
                 occlude_depth = np.random.randint(50, 200)
                 occlude_height = np.random.randint(10, 30)
                 data[occlude_depth:occlude_depth + occlude_height, :, :] *= 0.3
+            
+            # 9. Direction-aware mixing (simulate fish swimming different directions)
+            # Mix timesteps from different parts of the sequence
+            if np.random.random() > 0.5:
+                # Reverse temporal order (simulates opposite swimming direction)
+                if np.random.random() > 0.5:
+                    data = np.flip(data, axis=0).copy()
+                # Random temporal stride (simulates different speeds)
+                else:
+                    stride = np.random.choice([1, 2, 3])
+                    if stride > 1:
+                        data = data[::stride, :, :]
+                        # Pad to maintain shape
+                        pad_count = 32 - data.shape[0]
+                        if pad_count > 0:
+                            data = np.pad(data, ((0, pad_count), (0, 0), (0, 0)), 
+                                         mode='edge')
 
         history_tensor = torch.from_numpy(data.flatten()).float()
 
@@ -186,48 +203,55 @@ def train():
         print(f"Error: Not enough data. Found {len(full_dataset)} samples.")
         return
 
-    # STRATIFIED CHUNK SAMPLING
+    # STRATIFIED CHUNK SAMPLING WITH CLASS BALANCING
     # Split data into N chunks and sample from each chunk to avoid temporal bias
-    # This prevents the model from memorizing specific sequences
+    # Additionally balance classes within each chunk
     total_frames = len(full_dataset)
     n_chunks = args.n_chunks
     
-    # Calculate chunk size
-    chunk_size = total_frames // n_chunks
+    # First, group samples by class
+    class_indices = {0: [], 1: [], 2: [], 3: []}  # Kingfish, Snapper, Cod, Empty
+    for idx in range(total_frames):
+        sample = full_dataset[idx]
+        _, _, label = sample
+        class_indices[label].append(idx)
     
-    # Create chunked indices
-    chunk_indices = []
-    for i in range(n_chunks):
-        start_idx = i * chunk_size
-        if i == n_chunks - 1:
-            # Last chunk gets remaining frames
-            end_idx = total_frames
-        else:
-            end_idx = start_idx + chunk_size
-        chunk_indices.append(list(range(start_idx, end_idx)))
+    # Calculate chunk size per class
+    min_class_size = min(len(indices) for indices in class_indices.values())
+    samples_per_class_per_chunk = min_class_size // n_chunks
     
-    # Sample from each chunk for training (80% from each chunk)
+    # Create balanced chunks
     train_indices = []
     val_indices = []
     
-    rng = np.random.RandomState(42)  # For reproducibility
+    rng = np.random.RandomState(42)
     
-    for chunk_idx in chunk_indices:
-        rng.shuffle(chunk_idx)
-        split_point = int(len(chunk_idx) * 0.8)
-        train_indices.extend(chunk_idx[:split_point])
-        val_indices.extend(chunk_idx[split_point:])
+    for class_label, indices in class_indices.items():
+        rng.shuffle(indices)
+        chunk_size = samples_per_class_per_chunk
+        
+        for i in range(n_chunks):
+            start_idx = i * chunk_size
+            end_idx = start_idx + chunk_size
+            chunk = indices[start_idx:end_idx]
+            
+            # 80% train, 20% val from each chunk
+            split_point = int(len(chunk) * 0.8)
+            train_indices.extend(chunk[:split_point])
+            val_indices.extend(chunk[split_point:])
     
     # Subsample training data for diversity (every 2nd frame)
+    rng.shuffle(train_indices)
     train_indices = train_indices[::2]
     
     print(f"\n{'='*60}")
-    print(f"STRATIFIED CHUNK SAMPLING")
+    print(f"STRATIFIED CHUNK SAMPLING WITH CLASS BALANCING")
     print(f"{'='*60}")
     print(f"  Total frames: {total_frames}")
-    print(f"  Chunks: {n_chunks} (~{chunk_size} frames each)")
-    print(f"  Train samples: {len(train_indices)} (from all chunks)")
-    print(f"  Val samples: {len(val_indices)} (from all chunks)")
+    print(f"  Class distribution: Kingfish={len(class_indices[0])}, Snapper={len(class_indices[1])}, Cod={len(class_indices[2])}, Empty={len(class_indices[3])}")
+    print(f"  Chunks: {n_chunks}")
+    print(f"  Train samples: {len(train_indices)} (balanced across classes)")
+    print(f"  Val samples: {len(val_indices)} (balanced across classes)")
     print(f"  Rotation augmentation: ±{args.rotation_degrees}°")
     print(f"{'='*60}\n")
 
@@ -244,8 +268,8 @@ def train():
         # LeWorldModel: End-to-end JEPA with Gaussian regularization
         model = LeWorldModel(
             embed_dim=config.embed_dim,
-            n_timesteps=32,
-            num_layers=6,
+            n_timesteps=64,  # 64 timesteps for better temporal modeling
+            num_layers=8,    # Deeper transformer for longer sequences
             num_heads=8,
             mlp_ratio=4.0,
             drop=0.1,
@@ -256,6 +280,7 @@ def train():
         print("    - End-to-end training from raw pixels")
         print("    - Gaussian regularizer for stable latent space")
         print("    - Autoregressive transformer predictor")
+        print("    - 64-timestep context for temporal patterns")
         
     elif args.model == "conv":
         ac_encoder = ConvEncoder(embed_dim=config.embed_dim)

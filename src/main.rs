@@ -214,7 +214,7 @@ struct DatasetExporter {
     pub frame_count: u32,
     pub export_path: String,
     pub is_exporting: bool,
-    pub ping_history: VecDeque<Vec<u8>>,
+    pub ping_history: VecDeque<Vec<u8>>,  // Stores the last 64 pings for longer context
 }
 
 impl Default for DatasetExporter {
@@ -223,7 +223,7 @@ impl Default for DatasetExporter {
             frame_count: 0,
             export_path: "dataset".to_string(),
             is_exporting: false,
-            ping_history: VecDeque::with_capacity(32),
+            ping_history: VecDeque::with_capacity(64),  // 64 pings for better temporal modeling
         }
     }
 }
@@ -815,7 +815,7 @@ fn dataset_exporter_system(
             latest_ping_rgb.push(img.data[i + 2]);
         }
         exporter.ping_history.push_back(latest_ping_rgb);
-        if exporter.ping_history.len() > 32 {
+        if exporter.ping_history.len() > 64 {  // Keep 64 pings for longer context
             exporter.ping_history.pop_front();
         }
     }
@@ -840,7 +840,8 @@ fn dataset_exporter_system(
         for ping in &exporter.ping_history {
             full_history.extend_from_slice(ping);
         }
-        while full_history.len() < 32 * ECHOGRAM_HEIGHT as usize * 3 {
+        // Extend to 64 pings if needed for longer context models
+        while full_history.len() < 64 * ECHOGRAM_HEIGHT as usize * 3 {
             full_history.push(0);
         }
 
