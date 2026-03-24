@@ -152,7 +152,10 @@ struct Boid {
     max_speed: f32,
     max_force: f32,
     phase_offset: f32,
-    school_id: u32,  // Changed from usize to u32 for Bevy compatibility
+    school_id: u32,
+    is_active: bool,  // Whether this fish is currently active
+    base_heading: Vec3,  // Base school heading (changes over time)
+    heading_change_timer: f32,  // Timer for heading changes
 }
 
 #[derive(Component)]
@@ -281,6 +284,7 @@ fn main() {
                 tint_fish_system,
                 sync_cpu_buffer_system,
                 update_population_system,  // NEW: Dynamic population control
+                update_school_headings_system,  // NEW: Gradual heading changes
             ),
         )
         .run();
@@ -443,6 +447,9 @@ fn setup_scene(
                     max_force: 0.1,
                     phase_offset: rng.gen_range(0.0..std::f32::consts::TAU),
                     school_id: school_id as u32,
+                    is_active: true,
+                    base_heading: school_direction,
+                    heading_change_timer: rng.gen_range(0.0..30.0),  // Stagger heading changes
                 },
             ));
         }
@@ -1271,5 +1278,44 @@ fn update_population_system(
         } else {
             *visibility = Visibility::Hidden;
         }
+    }
+}
+
+/// Gradually change school headings over time for direction invariance
+fn update_school_headings_system(
+    time: Res<Time>,
+    mut fish_query: Query<(&mut Boid, &Species)>,
+) {
+    let dt = time.delta_secs();
+    
+    for (mut boid, _species) in fish_query.iter_mut() {
+        // Update timer
+        boid.heading_change_timer += dt;
+        
+        // Change heading every 30-60 seconds (randomized per school)
+        let change_interval = 30.0 + (boid.school_id as f32 * 7.5);  // 30-90s per school
+        
+        if boid.heading_change_timer > change_interval {
+            boid.heading_change_timer = 0.0;
+            
+            // Gradually rotate heading by 15-45 degrees
+            let rotation_angle = (boid.school_id as f32 * 0.3 + 0.5).sin() * 0.5;  // -0.5 to 0.5 radians
+            
+            // Rotate around Y axis (horizontal plane)
+            let sin_a = rotation_angle.sin();
+            let cos_a = rotation_angle.cos();
+            
+            let old_x = boid.base_heading.x;
+            let old_z = boid.base_heading.z;
+            
+            boid.base_heading.x = old_x * cos_a - old_z * sin_a;
+            boid.base_heading.z = old_x * sin_a + old_z * cos_a;
+            boid.base_heading = boid.base_heading.normalize_or_zero();
+        }
+        
+        // Gradually steer velocity toward base heading
+        let heading_force = (boid.base_heading - boid.velocity.normalize_or_zero()) * 0.05 * boid.max_speed;
+        boid.velocity += heading_force;
+        boid.velocity = boid.velocity.clamp_length_max(boid.max_speed);
     }
 }
