@@ -18,6 +18,7 @@ from models.acoustic import ConvEncoder, TransformerEncoder
 from models.lstm import AcousticLSTM
 from models.ast import AcousticAST
 from models.jepa import CrossModalJEPA
+from models.lewm import LeWorldModel
 
 # Load environment variables
 load_dotenv()
@@ -130,8 +131,8 @@ class FishDataset(Dataset):
         return vis_img, history_tensor, label
 
 def train():
-    parser = argparse.ArgumentParser(description="Train Fish JEPA Model")
-    parser.add_argument("--model", type=str, choices=["conv", "transformer", "lstm", "ast"], default="transformer", help="Acoustic encoder type")
+    parser = argparse.ArgumentParser(description="Train Fish JEPA/LeWM Model")
+    parser.add_argument("--model", type=str, choices=["conv", "transformer", "lstm", "ast", "lewm"], default="transformer", help="Acoustic encoder type")
     parser.add_argument("--epochs", type=int, default=80, help="Number of training epochs")
     parser.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
@@ -140,6 +141,7 @@ def train():
     parser.add_argument("--use-focal-loss", action="store_true", default=True, help="Use focal loss for classification")
     parser.add_argument("--rotation-degrees", type=int, default=30, help="Max rotation angle for augmentation (default: 30)")
     parser.add_argument("--n-chunks", type=int, default=10, help="Number of chunks for stratified sampling (default: 10)")
+    parser.add_argument("--sigreg-weight", type=float, default=0.1, help="Weight for SIGReg regularizer (LeWM only, default: 0.1)")
     args = parser.parse_args()
 
     run = wandb.init(
@@ -147,7 +149,7 @@ def train():
         project="depth-learning",
         config={
             "learning_rate": args.lr,
-            "architecture": f"JEPA-{args.model}",
+            "architecture": f"{'LeWM' if args.model == 'lewm' else 'JEPA'}-{args.model}",
             "dataset": "Synthetic-Fish-Sim-V3-Improved",
             "epochs": args.epochs,
             "embed_dim": 256,
@@ -157,6 +159,7 @@ def train():
             "use_focal_loss": args.use_focal_loss,
             "rotation_degrees": args.rotation_degrees,
             "n_chunks": args.n_chunks,
+            "sigreg_weight": args.sigreg_weight,
         },
     )
     config = wandb.config
@@ -236,26 +239,64 @@ def train():
     train_loader = DataLoader(train_ds, batch_size=config.batch_size, shuffle=True, drop_last=True, num_workers=4)
     val_loader = DataLoader(val_ds, batch_size=config.batch_size, shuffle=False, num_workers=4)
 
-    # Select Acoustic Encoder
-    if args.model == "conv":
+    # Select Model Architecture
+    if args.model == "lewm":
+        # LeWorldModel: End-to-end JEPA with Gaussian regularization
+        model = LeWorldModel(
+            input_dim=768,  # 32 * 256 * 3 flattened
+            embed_dim=config.embed_dim,
+            patch_size=16,
+            num_layers=6,
+            num_heads=8,
+            mlp_ratio=4.0,
+            drop=0.1,
+            n_classes=4,
+            use_classifier=True
+        ).to(device)
+        print("--- Using LeWorldModel (LeWM) Architecture ---")
+        print("    - End-to-end training from raw pixels")
+        print("    - Gaussian regularizer for stable latent space")
+        print("    - Autoregressive transformer predictor")
+        
+    elif args.model == "conv":
         ac_encoder = ConvEncoder(embed_dim=config.embed_dim)
+        model = CrossModalJEPA(
+            ac_encoder=ac_encoder, 
+            embed_dim=config.embed_dim,
+            use_focal_loss=args.use_focal_loss
+        ).to(device)
+        
     elif args.model == "transformer":
         ac_encoder = TransformerEncoder(embed_dim=config.embed_dim)
+        model = CrossModalJEPA(
+            ac_encoder=ac_encoder, 
+            embed_dim=config.embed_dim,
+            use_focal_loss=args.use_focal_loss
+        ).to(device)
+        
     elif args.model == "lstm":
-        # LSTM output is (B, hidden_dim * 2), so we project it to embed_dim
         ac_encoder = AcousticLSTM(input_dim=768, hidden_dim=256, num_classes=config.embed_dim)
+        model = CrossModalJEPA(
+            ac_encoder=ac_encoder, 
+            embed_dim=config.embed_dim,
+            use_focal_loss=args.use_focal_loss
+        ).to(device)
+        
     elif args.model == "ast":
-        # AST CLS output is (B, d_model), we use that as embedding
         ac_encoder = AcousticAST(d_model=config.embed_dim, num_classes=config.embed_dim)
+        model = CrossModalJEPA(
+            ac_encoder=ac_encoder, 
+            embed_dim=config.embed_dim,
+            use_focal_loss=args.use_focal_loss
+        ).to(device)
+        
     else:
-        # Fallback for old default behavior or if logic is simplified
         ac_encoder = TransformerEncoder(embed_dim=config.embed_dim)
-
-    model = CrossModalJEPA(
-        ac_encoder=ac_encoder, 
-        embed_dim=config.embed_dim,
-        use_focal_loss=args.use_focal_loss
-    ).to(device)
+        model = CrossModalJEPA(
+            ac_encoder=ac_encoder, 
+            embed_dim=config.embed_dim,
+            use_focal_loss=args.use_focal_loss
+        ).to(device)
     
     optimizer = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()), 
@@ -281,6 +322,7 @@ def train():
         train_loss = 0
         train_loss_jepa = 0
         train_loss_cls = 0
+        train_loss_sigreg = 0  # For LeWM regularizer
         train_correct = 0
         train_total = 0
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{config.epochs} [Train]")
@@ -289,10 +331,23 @@ def train():
             vis, ac, labels = vis.to(device), ac.to(device), labels.to(device)
             optimizer.zero_grad()
 
-            predicted_target, target_latent, species_logits = model(vis, ac)
-            
-            # Use compute_loss method which handles focal loss
-            loss, loss_jepa, loss_cls = model.compute_loss(predicted_target, target_latent, species_logits, labels)
+            if args.model == "lewm":
+                # LeWM forward pass
+                pred_emb, goal_emb, species_logits = model(ac)
+                
+                # Compute LeWM loss
+                loss, pred_loss, sigreg_loss, cls_loss = model.compute_loss(
+                    pred_emb, goal_emb, species_logits, labels, 
+                    sigreg_weight=args.sigreg_weight
+                )
+            else:
+                # JEPA forward pass
+                predicted_target, target_latent, species_logits = model(vis, ac)
+                
+                # Compute JEPA loss
+                loss, loss_jepa, loss_cls = model.compute_loss(predicted_target, target_latent, species_logits, labels)
+                pred_loss = loss_jepa
+                sigreg_loss = torch.tensor(0.0, device=device)
 
             loss.backward()
             
@@ -302,8 +357,10 @@ def train():
             optimizer.step()
 
             train_loss += loss.item()
-            train_loss_jepa += loss_jepa.item()
-            train_loss_cls += loss_cls.item()
+            train_loss_jepa += pred_loss.item()
+            train_loss_cls += cls_loss.item()
+            train_loss_sigreg += sigreg_loss.item()
+            
             preds = torch.argmax(species_logits, dim=1)
             train_correct += (preds == labels).sum().item()
             train_total += labels.size(0)
@@ -319,6 +376,7 @@ def train():
         val_loss = 0
         val_loss_jepa = 0
         val_loss_cls = 0
+        val_loss_sigreg = 0
         val_correct = 0
         val_total = 0
         val_sim = 0
@@ -330,16 +388,34 @@ def train():
         with torch.no_grad():
             for vis, ac, labels in val_loader:
                 vis, ac, labels = vis.to(device), ac.to(device), labels.to(device)
-                predicted_target, target_latent, species_logits = model(vis, ac)
-
-                loss, loss_jepa, loss_cls = model.compute_loss(predicted_target, target_latent, species_logits, labels)
-
-                val_loss += loss.item()
-                val_loss_jepa += loss_jepa.item()
-                val_loss_cls += loss_cls.item()
                 
-                sim = F.cosine_similarity(predicted_target, target_latent, dim=-1).mean()
-                val_sim += sim.item()
+                if args.model == "lewm":
+                    # LeWM forward pass (no visual input needed)
+                    pred_emb, goal_emb, species_logits = model(ac)
+                    
+                    # Compute loss
+                    loss, pred_loss, sigreg_loss, cls_loss = model.compute_loss(
+                        pred_emb, goal_emb, species_logits, labels,
+                        sigreg_weight=args.sigreg_weight
+                    )
+                    
+                    val_loss += loss.item()
+                    val_loss_jepa += pred_loss.item()
+                    val_loss_cls += cls_loss.item()
+                    val_loss_sigreg += sigreg_loss.item()
+                else:
+                    # JEPA forward pass
+                    predicted_target, target_latent, species_logits = model(vis, ac)
+                    
+                    loss, loss_jepa, loss_cls = model.compute_loss(predicted_target, target_latent, species_logits, labels)
+                    
+                    val_loss += loss.item()
+                    val_loss_jepa += loss_jepa.item()
+                    val_loss_cls += loss_cls.item()
+                    
+                    # Cosine similarity for JEPA
+                    sim = F.cosine_similarity(predicted_target, target_latent, dim=-1).mean()
+                    val_sim += sim.item()
                 
                 preds = torch.argmax(species_logits, dim=1)
                 val_correct += (preds == labels).sum().item()
@@ -355,13 +431,15 @@ def train():
         avg_train_loss = train_loss / len(train_loader)
         avg_train_loss_jepa = train_loss_jepa / len(train_loader)
         avg_train_loss_cls = train_loss_cls / len(train_loader)
+        avg_train_loss_sigreg = train_loss_sigreg / len(train_loader)
         avg_train_acc = train_correct / train_total
         
         avg_val_loss = val_loss / len(val_loader)
         avg_val_loss_jepa = val_loss_jepa / len(val_loader)
         avg_val_loss_cls = val_loss_cls / len(val_loader)
+        avg_val_loss_sigreg = val_loss_sigreg / len(val_loader)
         avg_val_acc = val_correct / val_total
-        avg_val_sim = val_sim / len(val_loader)
+        avg_val_sim = val_sim / len(val_loader) if args.model != "lewm" else 0.0
 
         scheduler.step()
 
@@ -373,36 +451,42 @@ def train():
         
         print(f"Epoch {epoch+1} Results: "
               f"Train Acc: {100*avg_train_acc:.1f}% | "
-              f"Val Acc: {100*avg_val_acc:.1f}% | "
-              f"Val Sim: {avg_val_sim:.3f}")
+              f"Val Acc: {100*avg_val_acc:.1f}%"
+              + (f" | Val Sim: {avg_val_sim:.3f}" if args.model != "lewm" else ""))
         for name, acc in class_acc.items():
             print(f"  {name}: {acc:.1f}%")
 
         wandb.log({
             "epoch": epoch + 1,
             "train_loss": avg_train_loss,
-            "train_loss_jepa": avg_train_loss_jepa,
+            "train_loss_pred": avg_train_loss_jepa,
             "train_loss_cls": avg_train_loss_cls,
+            "train_loss_sigreg": avg_train_loss_sigreg,
             "train_acc": avg_train_acc,
             "val_loss": avg_val_loss,
-            "val_loss_jepa": avg_val_loss_jepa,
+            "val_loss_pred": avg_val_loss_jepa,
             "val_loss_cls": avg_val_loss_cls,
+            "val_loss_sigreg": avg_val_loss_sigreg,
             "val_acc": avg_val_acc,
-            "val_sim": avg_val_sim,
+            **({"val_sim": avg_val_sim} if args.model != "lewm" else {}),
             "lr": optimizer.param_groups[0]["lr"],
             **class_acc
         })
 
-        # Save Best Model (by combined accuracy + similarity)
-        combined_score = avg_val_acc * 0.7 + avg_val_sim * 0.3
-        if combined_score >= best_val_acc * 0.7 + best_val_sim * 0.3:
-            best_val_acc = avg_val_acc
-            best_val_sim = avg_val_sim
+        # Save Best Model (by accuracy for LeWM, combined for JEPA)
+        if args.model == "lewm":
+            save_score = avg_val_acc
+        else:
+            combined_score = avg_val_acc * 0.7 + avg_val_sim * 0.3
+            save_score = combined_score
+            
+        if save_score >= best_val_acc:
+            best_val_acc = save_score
             os.makedirs("weights", exist_ok=True)
             torch.save(model.state_dict(), "weights/fish_clip_model.pth")
             with open("weights/model_config.json", "w") as f:
                 json.dump({"model_type": args.model, "config": dict(config)}, f)
-            print(f"--> Saved New Best Model (Val Acc: {100*best_val_acc:.1f}%, Sim: {best_val_sim:.3f})")
+            print(f"--> Saved New Best Model (Val Acc: {100*avg_val_acc:.1f}%)")
 
     run.finish()
 
