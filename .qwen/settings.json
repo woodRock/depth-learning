@@ -8,7 +8,13 @@
       "Bash(touch *)",
       "Bash(git rm *)",
       "Bash(git add *)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(brew *)",
+      "Bash(bfg *)",
+      "Bash(git reflog *)",
+      "Bash(git gc *)",
+      "Bash(git push *)",
+      "Bash(git push)"
     ]
   }
 }
