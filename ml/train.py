@@ -138,6 +138,8 @@ def train():
     parser.add_argument("--weight-decay", type=float, default=0.05, help="Weight decay")
     parser.add_argument("--label-smoothing", type=float, default=0.1, help="Label smoothing factor")
     parser.add_argument("--use-focal-loss", action="store_true", default=True, help="Use focal loss for classification")
+    parser.add_argument("--rotation-degrees", type=int, default=30, help="Max rotation angle for augmentation (default: 30)")
+    parser.add_argument("--n-chunks", type=int, default=10, help="Number of chunks for stratified sampling (default: 10)")
     args = parser.parse_args()
 
     run = wandb.init(
@@ -153,6 +155,8 @@ def train():
             "weight_decay": args.weight_decay,
             "label_smoothing": args.label_smoothing,
             "use_focal_loss": args.use_focal_loss,
+            "rotation_degrees": args.rotation_degrees,
+            "n_chunks": args.n_chunks,
         },
     )
     config = wandb.config
@@ -160,13 +164,13 @@ def train():
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"--- Starting {args.model.upper()} Multi-Task Training on {device} ---")
 
-    # Enhanced visual augmentation
+    # Enhanced visual augmentation with rotation invariance
     transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.RandomHorizontalFlip(p=0.5),
         transforms.RandomVerticalFlip(p=0.3),
+        transforms.RandomRotation(degrees=args.rotation_degrees),  # Rotation invariance
         transforms.ColorJitter(brightness=0.15, contrast=0.15, saturation=0.1, hue=0.05),
-        transforms.RandomRotation(degrees=5),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
@@ -179,14 +183,50 @@ def train():
         print(f"Error: Not enough data. Found {len(full_dataset)} samples.")
         return
 
-    # BLOCK SPLIT (No Shuffling before split!)
-    # First 80% of time-series for training, last 20% for validation
+    # STRATIFIED CHUNK SAMPLING
+    # Split data into N chunks and sample from each chunk to avoid temporal bias
+    # This prevents the model from memorizing specific sequences
     total_frames = len(full_dataset)
-    train_split = int(0.8 * total_frames)
-
-    indices = list(range(total_frames))
-    train_indices = indices[:train_split:2]  # Subsample every 2nd frame for diversity
-    val_indices = indices[train_split:]
+    n_chunks = args.n_chunks
+    
+    # Calculate chunk size
+    chunk_size = total_frames // n_chunks
+    
+    # Create chunked indices
+    chunk_indices = []
+    for i in range(n_chunks):
+        start_idx = i * chunk_size
+        if i == n_chunks - 1:
+            # Last chunk gets remaining frames
+            end_idx = total_frames
+        else:
+            end_idx = start_idx + chunk_size
+        chunk_indices.append(list(range(start_idx, end_idx)))
+    
+    # Sample from each chunk for training (80% from each chunk)
+    train_indices = []
+    val_indices = []
+    
+    rng = np.random.RandomState(42)  # For reproducibility
+    
+    for chunk_idx in chunk_indices:
+        rng.shuffle(chunk_idx)
+        split_point = int(len(chunk_idx) * 0.8)
+        train_indices.extend(chunk_idx[:split_point])
+        val_indices.extend(chunk_idx[split_point:])
+    
+    # Subsample training data for diversity (every 2nd frame)
+    train_indices = train_indices[::2]
+    
+    print(f"\n{'='*60}")
+    print(f"STRATIFIED CHUNK SAMPLING")
+    print(f"{'='*60}")
+    print(f"  Total frames: {total_frames}")
+    print(f"  Chunks: {n_chunks} (~{chunk_size} frames each)")
+    print(f"  Train samples: {len(train_indices)} (from all chunks)")
+    print(f"  Val samples: {len(val_indices)} (from all chunks)")
+    print(f"  Rotation augmentation: ±{args.rotation_degrees}°")
+    print(f"{'='*60}\n")
 
     train_ds = torch.utils.data.Subset(FishDataset(dataset_path, transform=transform, mode="train"), train_indices)
     val_ds = torch.utils.data.Subset(FishDataset(dataset_path, transform=transform, mode="val"), val_indices)
