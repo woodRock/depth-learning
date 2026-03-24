@@ -217,11 +217,22 @@ def train():
         class_indices[label].append(idx)
     
     # Remove empty classes
-    class_indices = {k: v for k, v in class_indices.items() if len(v) > 0}
+    class_indices = {k: v for k, v in class_indices.items() if len(v) > 10}  # Need at least 10 samples
     
-    # Calculate samples per class (balance to smallest class)
+    if len(class_indices) == 0:
+        print("Error: Not enough samples in any class (need >10 per class)")
+        return
+    
+    # Calculate samples per class (balance to smallest class, but keep reasonable amount)
     min_class_size = min(len(indices) for indices in class_indices.values())
-    target_per_class = min_class_size  # Use all samples from smallest class
+    max_class_size = max(len(indices) for indices in class_indices.values())
+    
+    # If classes are very imbalanced (>10x difference), don't balance too aggressively
+    if max_class_size > min_class_size * 10:
+        # Use a portion of the largest classes instead of balancing to smallest
+        target_per_class = max(min_class_size, max_class_size // 3)
+    else:
+        target_per_class = min_class_size  # Use all samples from smallest class
     
     # Create balanced indices
     train_indices = []
@@ -231,7 +242,7 @@ def train():
     
     for class_label, indices in class_indices.items():
         rng.shuffle(indices)
-        # Truncate to match smallest class
+        # Truncate to target size
         balanced_indices = indices[:target_per_class]
         
         # Split into chunks
@@ -261,7 +272,7 @@ def train():
     print(f"  Total frames: {total_frames}")
     print(f"  Class distribution: " + ", ".join(f"{name}={len(class_indices.get(i, []))}" 
           for i, name in enumerate(["Kingfish", "Snapper", "Cod", "Empty"]) if i in class_indices))
-    print(f"  Target per class: {target_per_class} (balanced to smallest)")
+    print(f"  Target per class: {target_per_class} (balanced across classes)")
     print(f"  Chunks: {n_chunks}")
     print(f"  Train samples: {len(train_indices)} (balanced across classes)")
     print(f"  Val samples: {len(val_indices)} (balanced across classes)")
@@ -387,15 +398,15 @@ def train():
                 sigreg_loss = torch.tensor(0.0, device=device)
 
             loss.backward()
-            
+
             # Gradient clipping
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
+
             optimizer.step()
 
             train_loss += loss.item()
             train_loss_jepa += pred_loss.item()
-            train_loss_cls += cls_loss.item()
+            train_loss_cls += loss_cls.item()  # Fixed: use loss_cls from JEPA
             train_loss_sigreg += sigreg_loss.item()
             
             preds = torch.argmax(species_logits, dim=1)
