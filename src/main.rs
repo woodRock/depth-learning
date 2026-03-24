@@ -24,6 +24,28 @@ const ECHOGRAM_HEIGHT: u32 = 256;
 const BIRD_EYE_WIDTH: u32 = 512;
 const BIRD_EYE_HEIGHT: u32 = 512;
 
+// Dynamic population control
+const POPULATION_CYCLE_PERIOD: f32 = 120.0; // Seconds for full cycle
+const MIN_ACTIVE_RATIO: f32 = 0.3;  // Minimum % of schools active
+const MAX_ACTIVE_RATIO: f32 = 1.0;  // Maximum % of schools active
+
+#[derive(Resource)]
+struct DynamicPopulation {
+    pub active_schools: Vec<bool>,  // Which schools are currently active
+    pub cycle_timer: f32,           // Time in current cycle
+    pub species_activity: [f32; 3], // Activity level per species (0-1)
+}
+
+impl Default for DynamicPopulation {
+    fn default() -> Self {
+        Self {
+            active_schools: vec![true; SCHOOL_COUNT],
+            cycle_timer: 0.0,
+            species_activity: [1.0, 1.0, 1.0],
+        }
+    }
+}
+
 #[derive(Resource)]
 struct InferenceChannels {
     pub tx_image: Sender<Vec<u8>>,
@@ -235,6 +257,7 @@ fn main() {
         .init_resource::<CameraSettings>()
         .init_resource::<DatasetExporter>()
         .init_resource::<InferenceResult>()
+        .init_resource::<DynamicPopulation>()
         .add_systems(
             Startup,
             (setup_render_textures, setup_scene, setup_cameras).chain(),
@@ -252,6 +275,7 @@ fn main() {
                 set_camera_viewports,
                 tint_fish_system,
                 sync_cpu_buffer_system,
+                update_population_system,  // NEW: Dynamic population control
             ),
         )
         .run();
@@ -1175,4 +1199,57 @@ fn sync_cpu_buffer_system(
     _ui_state: Res<UIState>,
     _images: ResMut<Assets<Image>>,
 ) {
+}
+
+/// Update which schools are active based on time-varying population dynamics
+fn update_population_system(
+    time: Res<Time>,
+    mut population: ResMut<DynamicPopulation>,
+    mut fish_query: Query<(&mut Visibility, &Boid)>,
+) {
+    // Update cycle timer
+    population.cycle_timer += time.delta_secs();
+    if population.cycle_timer > POPULATION_CYCLE_PERIOD {
+        population.cycle_timer -= POPULATION_CYCLE_PERIOD;
+    }
+    
+    // Calculate phase in cycle (0 to 1)
+    let cycle_phase = population.cycle_timer / POPULATION_CYCLE_PERIOD;
+    
+    // Generate species activity levels using sine waves with different phases
+    // This creates a rotating dominance pattern
+    for i in 0..3 {
+        // Each species has a different phase offset (0, 1/3, 2/3 of cycle)
+        let phase_offset = (i as f32) / 3.0;
+        let activity = 0.5 + 0.5 * ((cycle_phase + phase_offset) * std::f32::consts::PI * 2.0).sin();
+        population.species_activity[i] = activity.clamp(MIN_ACTIVE_RATIO, MAX_ACTIVE_RATIO);
+    }
+    
+    // Determine which schools should be active based on species activity
+    // Schools are assigned to species in round-robin fashion (species_list[i % 3])
+    let species_activity_copy = population.species_activity;  // Copy to avoid borrow conflict
+    for (school_idx, active) in population.active_schools.iter_mut().enumerate() {
+        let species_idx = school_idx % 3;  // 0=Kingfish, 1=Snapper, 2=Cod
+        let activity = species_activity_copy[species_idx];
+        
+        // Schools have a probability of being active based on species activity
+        // Add some randomness for natural variation
+        let random_factor = (school_idx as f32 * 0.7 + cycle_phase * 10.0).sin() * 0.5 + 0.5;
+        let effective_activity = activity * 0.7 + random_factor * 0.3;
+        
+        *active = effective_activity > 0.5;
+    }
+    
+    // Update fish visibility based on school activity
+    for (mut visibility, boid) in fish_query.iter_mut() {
+        let school_active = population.active_schools.get(boid.school_id as usize)
+            .copied()
+            .unwrap_or(true);
+        
+        if school_active {
+            *visibility = Visibility::Visible;
+        } else {
+            *visibility = Visibility::Hidden;
+        }
+    }
 }
