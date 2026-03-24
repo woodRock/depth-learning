@@ -1006,6 +1006,10 @@ fn boid_movement_system(
             }
         }
 
+        // School heading preference (gentle steering toward school direction)
+        let heading_preference = (boid.base_heading - boid.velocity.normalize_or_zero()) * 0.08;
+        acceleration += heading_preference * boid.max_speed;
+
         let forward_drive = boid.velocity.normalize_or_zero() * 0.1;
         acceleration += forward_drive;
 
@@ -1282,40 +1286,62 @@ fn update_population_system(
 }
 
 /// Gradually change school headings over time for direction invariance
+/// Only updates base_heading - actual velocity is handled by boid_movement_system
 fn update_school_headings_system(
     time: Res<Time>,
     mut fish_query: Query<(&mut Boid, &Species)>,
 ) {
     let dt = time.delta_secs();
     
-    for (mut boid, _species) in fish_query.iter_mut() {
-        // Update timer
-        boid.heading_change_timer += dt;
+    // Collect unique school IDs and their current state
+    let mut school_data: std::collections::HashMap<u32, (Vec3, f32)> = std::collections::HashMap::new();
+    
+    for (boid, _species) in fish_query.iter() {
+        if !school_data.contains_key(&boid.school_id) {
+            school_data.insert(
+                boid.school_id,
+                (boid.base_heading, boid.heading_change_timer),
+            );
+        }
+    }
+    
+    // Update headings per school
+    for (school_id, data) in school_data.iter_mut() {
+        let (heading, timer) = data;
+        let mut new_heading = *heading;
+        let mut new_timer = *timer;
         
-        // Change heading every 30-60 seconds (randomized per school)
-        let change_interval = 30.0 + (boid.school_id as f32 * 7.5);  // 30-90s per school
+        new_timer += dt;
         
-        if boid.heading_change_timer > change_interval {
-            boid.heading_change_timer = 0.0;
+        // Change heading every 30-90 seconds (randomized per school)
+        let change_interval = 30.0 + (*school_id as f32 * 7.5);
+        
+        if new_timer > change_interval {
+            new_timer = 0.0;
             
             // Gradually rotate heading by 15-45 degrees
-            let rotation_angle = (boid.school_id as f32 * 0.3 + 0.5).sin() * 0.5;  // -0.5 to 0.5 radians
+            let rotation_angle = (*school_id as f32 * 0.3 + 0.5).sin() * 0.5;  // -0.5 to 0.5 radians
             
             // Rotate around Y axis (horizontal plane)
             let sin_a = rotation_angle.sin();
             let cos_a = rotation_angle.cos();
             
-            let old_x = boid.base_heading.x;
-            let old_z = boid.base_heading.z;
+            let old_x = heading.x;
+            let old_z = heading.z;
             
-            boid.base_heading.x = old_x * cos_a - old_z * sin_a;
-            boid.base_heading.z = old_x * sin_a + old_z * cos_a;
-            boid.base_heading = boid.base_heading.normalize_or_zero();
+            new_heading.x = old_x * cos_a - old_z * sin_a;
+            new_heading.z = old_x * sin_a + old_z * cos_a;
+            new_heading = new_heading.normalize_or_zero();
         }
         
-        // Gradually steer velocity toward base heading
-        let heading_force = (boid.base_heading - boid.velocity.normalize_or_zero()) * 0.05 * boid.max_speed;
-        boid.velocity += heading_force;
-        boid.velocity = boid.velocity.clamp_length_max(boid.max_speed);
+        *data = (new_heading, new_timer);
+    }
+    
+    // Apply updated headings to all fish
+    for (mut boid, _species) in fish_query.iter_mut() {
+        if let Some((new_heading, new_timer)) = school_data.get(&boid.school_id) {
+            boid.base_heading = *new_heading;
+            boid.heading_change_timer = *new_timer;
+        }
     }
 }
