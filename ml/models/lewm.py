@@ -8,14 +8,14 @@ class SIGReg(nn.Module):
     Sketch Isotropic Gaussian Regularizer.
     Regularizes projections to match an isotropic Gaussian distribution.
     """
-    def __init__(self, n_projections=10, sigma=1.0):
+    def __init__(self, embed_dim=256, n_projections=10, sigma=1.0):
         super().__init__()
         self.n_projections = n_projections
         self.sigma = sigma
+        self.embed_dim = embed_dim
         
-        # Random orthogonal projections (fixed)
-        self.register_buffer('projection_vectors', torch.randn(n_projections, 1))
-        self.projection_vectors.data = F.normalize(self.projection_vectors.data, dim=0)
+        # Random orthogonal projections (fixed) - shape (D, n_projections)
+        self.register_buffer('projection_vectors', torch.randn(embed_dim, n_projections))
         
     def forward(self, embeddings):
         """
@@ -27,11 +27,11 @@ class SIGReg(nn.Module):
         """
         B, T, D = embeddings.shape
         
-        # Flatten to (B*T, D)
-        flat_emb = embeddings.view(-1, D)
+        # Flatten to (B*T, D) - use reshape for non-contiguous tensors
+        flat_emb = embeddings.reshape(-1, D)
         
-        # Project to 1D
-        projections = torch.matmul(flat_emb, self.projection_vectors.T)  # (B*T, n_projections)
+        # Project to 1D: (B*T, D) @ (D, n_projections) = (B*T, n_projections)
+        projections = torch.matmul(flat_emb, self.projection_vectors)
         
         # Compute Epps-Pulley statistic
         # Compare against standard Gaussian
@@ -286,7 +286,7 @@ class LeWorldModel(nn.Module):
         self.pred_proj = nn.Linear(embed_dim, embed_dim)
         
         # 4. Gaussian regularizer
-        self.sigreg = SIGReg(n_projections=10, sigma=1.0)
+        self.sigreg = SIGReg(embed_dim=embed_dim, n_projections=10, sigma=1.0)
         
         # 5. Classification head (optional, for your fish classification task)
         if use_classifier:
