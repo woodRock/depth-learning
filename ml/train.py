@@ -216,11 +216,14 @@ def train():
         _, _, label = sample
         class_indices[label].append(idx)
     
-    # Calculate chunk size per class
-    min_class_size = min(len(indices) for indices in class_indices.values())
-    samples_per_class_per_chunk = min_class_size // n_chunks
+    # Remove empty classes
+    class_indices = {k: v for k, v in class_indices.items() if len(v) > 0}
     
-    # Create balanced chunks
+    # Calculate samples per class (balance to smallest class)
+    min_class_size = min(len(indices) for indices in class_indices.values())
+    target_per_class = min_class_size  # Use all samples from smallest class
+    
+    # Create balanced indices
     train_indices = []
     val_indices = []
     
@@ -228,12 +231,20 @@ def train():
     
     for class_label, indices in class_indices.items():
         rng.shuffle(indices)
-        chunk_size = samples_per_class_per_chunk
+        # Truncate to match smallest class
+        balanced_indices = indices[:target_per_class]
+        
+        # Split into chunks
+        chunk_size = len(balanced_indices) // n_chunks
         
         for i in range(n_chunks):
             start_idx = i * chunk_size
-            end_idx = start_idx + chunk_size
-            chunk = indices[start_idx:end_idx]
+            if i == n_chunks - 1:
+                end_idx = len(balanced_indices)  # Last chunk gets remainder
+            else:
+                end_idx = start_idx + chunk_size
+            
+            chunk = balanced_indices[start_idx:end_idx]
             
             # 80% train, 20% val from each chunk
             split_point = int(len(chunk) * 0.8)
@@ -248,7 +259,9 @@ def train():
     print(f"STRATIFIED CHUNK SAMPLING WITH CLASS BALANCING")
     print(f"{'='*60}")
     print(f"  Total frames: {total_frames}")
-    print(f"  Class distribution: Kingfish={len(class_indices[0])}, Snapper={len(class_indices[1])}, Cod={len(class_indices[2])}, Empty={len(class_indices[3])}")
+    print(f"  Class distribution: " + ", ".join(f"{name}={len(class_indices.get(i, []))}" 
+          for i, name in enumerate(["Kingfish", "Snapper", "Cod", "Empty"]) if i in class_indices))
+    print(f"  Target per class: {target_per_class} (balanced to smallest)")
     print(f"  Chunks: {n_chunks}")
     print(f"  Train samples: {len(train_indices)} (balanced across classes)")
     print(f"  Val samples: {len(val_indices)} (balanced across classes)")
