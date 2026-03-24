@@ -108,12 +108,17 @@ impl Species {
             Species::Empty => 0.0,
         }
     }
-    fn target_strength(&self) -> f32 {
+    fn target_strength(&self) -> (f32, f32, f32) {
+        // Target strengths at 3 frequencies: (38kHz, 120kHz, 200kHz)
+        // Different species have different frequency responses
         match self {
-            Species::Kingfish => -35.0,
-            Species::Snapper => -42.0,
-            Species::Cod => -38.0,
-            Species::Empty => -99.0,
+            // Kingfish: stronger at lower frequencies (large swim bladder)
+            Species::Kingfish => (-32.0, -35.0, -38.0),
+            // Snapper: relatively flat response
+            Species::Snapper => (-45.0, -43.0, -42.0),
+            // Cod: stronger at higher frequencies (different body composition)
+            Species::Cod => (-42.0, -39.0, -37.0),
+            Species::Empty => (-99.0, -99.0, -99.0),
         }
     }
     fn speed(&self) -> f32 {
@@ -136,7 +141,7 @@ impl Species {
 
 #[derive(Component)]
 struct AcousticProfile {
-    target_strength: f32,
+    target_strength: (f32, f32, f32),  // TS at 3 frequencies: (38kHz, 120kHz, 200kHz)
     ts_phase: f32, // Random phase for time-varying TS
 }
 
@@ -1115,14 +1120,29 @@ fn echosounder_ping_system(
                 let i = ((y as u32 * ECHOGRAM_WIDTH + (ECHOGRAM_WIDTH - 1)) * 4) as usize;
                 let pulse_factor = 1.0 - (dy.abs() as f32 / pulse_half_width as f32);
 
-                // Original intensity formula with TS variation
-                let intensity = ((profile.target_strength + 65.0) / 45.0).clamp(0.0, 1.0)
-                    * beam_factor * pulse_factor * tilt_factor * ts_variation;
+                // Multi-frequency intensity calculation
+                // Each frequency channel has different target strength
+                let (ts_38, ts_120, ts_200) = profile.target_strength;
+                
+                // Time-varying TS with frequency-dependent variation
+                // Lower frequencies vary more (swim bladder resonance)
+                let ts_variation_38 = 0.7 + 0.3 * (t * 2.0 + profile.ts_phase).sin();
+                let ts_variation_120 = 0.8 + 0.2 * (t * 2.5 + profile.ts_phase * 1.2).sin();
+                let ts_variation_200 = 0.85 + 0.15 * (t * 3.0 + profile.ts_phase * 1.4).sin();
+                
+                // Calculate intensity per frequency
+                let intensity_38 = ((ts_38 + 65.0) / 45.0).clamp(0.0, 1.0)
+                    * beam_factor * pulse_factor * tilt_factor * ts_variation_38;
+                let intensity_120 = ((ts_120 + 65.0) / 45.0).clamp(0.0, 1.0)
+                    * beam_factor * pulse_factor * tilt_factor * ts_variation_120;
+                let intensity_200 = ((ts_200 + 65.0) / 45.0).clamp(0.0, 1.0)
+                    * beam_factor * pulse_factor * tilt_factor * ts_variation_200;
 
-                // ADDITIVE blending with original yellowish color ratios
-                image.data[i] = image.data[i].saturating_add((255.0 * intensity) as u8);
-                image.data[i + 1] = image.data[i + 1].saturating_add((200.0 * intensity) as u8);
-                image.data[i + 2] = image.data[i + 2].saturating_add((50.0 * intensity) as u8);
+                // Map frequencies to RGB channels for visualization
+                // R = 38kHz (low freq), G = 120kHz (mid freq), B = 200kHz (high freq)
+                image.data[i] = image.data[i].saturating_add((255.0 * intensity_38) as u8);
+                image.data[i + 1] = image.data[i + 1].saturating_add((255.0 * intensity_120) as u8);
+                image.data[i + 2] = image.data[i + 2].saturating_add((255.0 * intensity_200) as u8);
             }
         }
     }
