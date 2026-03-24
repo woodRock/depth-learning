@@ -21,6 +21,7 @@ from models.lstm import AcousticLSTM
 from models.ast import AcousticAST
 from models.fusion import MaskedAttentionFusion
 from models.mae import AcousticMAE
+from models.lewm import LeWorldModel
 
 app = FastAPI()
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -89,6 +90,21 @@ async def load_model():
         if os.path.exists("weights/fusion_best.pth"):
             model.load_state_dict(torch.load("weights/fusion_best.pth", map_location=device))
         print("Loaded Fusion Model.")
+    elif model_type == "lewm":
+        # LeWorldModel: Acoustic-only, no visual encoder needed
+        model = LeWorldModel(
+            embed_dim=256,
+            n_timesteps=32,
+            num_layers=6,
+            num_heads=8,
+            mlp_ratio=4.0,
+            drop=0.1,
+            n_classes=4,
+            use_classifier=True
+        )
+        if os.path.exists(weights_path):
+            model.load_state_dict(torch.load(weights_path, map_location=device))
+        print("Loaded LeWorldModel (LeWM).")
     else:
         ac_encoder = ConvEncoder() if model_type == "conv" else TransformerEncoder()
         model = CrossModalJEPA(ac_encoder=ac_encoder)
@@ -99,7 +115,7 @@ async def load_model():
     model.to(device)
     model.eval()
 
-    # Load Decoder (Only needed for JEPA models)
+    # Load Decoder (Only needed for JEPA models with reconstruction)
     if model_type in ["conv", "transformer"]:
         decoder = LatentDecoder()
         if os.path.exists(decoder_path):
@@ -161,6 +177,10 @@ async def predict(file: UploadFile = File(...)):
             ac_img = history_flat.view(-1, 32, 256, 3).permute(0, 3, 1, 2)
             species_logits = model(vis_feats, ac_img, mask_ratio=0.0)
             gen_img_tensor = None
+        elif model_type == "lewm":
+            # LeWorldModel: Acoustic-only, no visual needed
+            _, _, species_logits = model(history_flat)
+            gen_img_tensor = None  # LeWM doesn't do image reconstruction
         else:
             # JEPA
             vis_latent, species_logits = model.forward_ac_to_vis_latent(history_flat)
