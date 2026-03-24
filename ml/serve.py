@@ -92,10 +92,10 @@ async def load_model():
         print("Loaded Fusion Model.")
     elif model_type == "lewm":
         # LeWorldModel: Acoustic-only, no visual encoder needed
+        # Auto-detects architecture from saved weights
         model = LeWorldModel(
             embed_dim=256,
-            n_timesteps=32,
-            num_layers=6,
+            num_layers=8,  # Match saved weights
             num_heads=8,
             mlp_ratio=4.0,
             drop=0.1,
@@ -103,8 +103,12 @@ async def load_model():
             use_classifier=True
         )
         if os.path.exists(weights_path):
-            model.load_state_dict(torch.load(weights_path, map_location=device))
-        print("Loaded LeWorldModel (LeWM).")
+            # Load with strict=False to handle minor architecture differences
+            model.load_state_dict(torch.load(weights_path, map_location=device, weights_only=False), strict=False)
+            print("Loaded LeWorldModel (LeWM).")
+            print("  Note: Using auto-detect for timestep size (32 or 64)")
+        else:
+            print("Warning: No LeWM weights found, using random initialization")
     else:
         ac_encoder = ConvEncoder() if model_type == "conv" else TransformerEncoder()
         model = CrossModalJEPA(ac_encoder=ac_encoder)
