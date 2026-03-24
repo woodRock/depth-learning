@@ -4,7 +4,11 @@
       "Bash(cargo check)",
       "Bash(python *)",
       "Bash(python3 *)",
-      "Bash(cat *)"
+      "Bash(cat *)",
+      "Bash(touch *)",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(git commit *)"
     ]
   }
 }
