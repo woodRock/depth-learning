@@ -252,9 +252,8 @@ class LeWorldModel(nn.Module):
     """
     def __init__(
         self,
-        input_dim=768,          # Input dimension (32*256*3 = 24576 flattened, or use encoder)
         embed_dim=256,          # Latent embedding dimension
-        patch_size=16,          # Patch size for embedder
+        n_timesteps=32,         # Number of timesteps in input
         num_layers=6,           # Number of transformer layers in predictor
         num_heads=8,            # Number of attention heads
         mlp_ratio=4.0,          # MLP hidden dim ratio
@@ -269,9 +268,9 @@ class LeWorldModel(nn.Module):
         
         # 1. Embedder (encodes input to latent space)
         self.embedder = Embedder(
-            input_dim=24576,  # 32 * 256 * 3 flattened
+            input_dim=24576,
             embed_dim=embed_dim,
-            n_timesteps=32
+            n_timesteps=n_timesteps
         )
         
         # 2. Predictor (autoregressive transformer)
