@@ -56,16 +56,22 @@ class SIGReg(nn.Module):
 class Embedder(nn.Module):
     """
     Embeds input sequences into latent space.
-    Input: (B, 64*256*3) flattened echogram history
-    Output: (B, T, embed_dim) where T=64 timesteps
+    Auto-detects input size: supports both 32 and 64 timesteps.
+    Input: (B, 24576) for 32 timesteps OR (B, 49152) for 64 timesteps
+    Output: (B, T, embed_dim)
     """
-    def __init__(self, input_dim=49152, embed_dim=256, n_timesteps=64):
+    def __init__(self, input_dim=None, embed_dim=256, n_timesteps=None):
         super().__init__()
-        self.n_timesteps = n_timesteps
         self.embed_dim = embed_dim
         
         # Each timestep has 256*3 = 768 features (256 depth bins × 3 channels)
         self.timestep_dim = 256 * 3  # 768
+        
+        # Auto-detect n_timesteps from input_dim if not specified
+        if input_dim is not None and n_timesteps is None:
+            n_timesteps = input_dim // self.timestep_dim
+        
+        self.n_timesteps = n_timesteps if n_timesteps is not None else 32
         
         # Project each timestep to embed_dim
         self.timestep_proj = nn.Sequential(
@@ -77,15 +83,18 @@ class Embedder(nn.Module):
     def forward(self, x):
         """
         Args:
-            x: (B, 49152) flattened input (64 timesteps × 768 features)
+            x: (B, input_dim) flattened input (auto-detects 32 or 64 timesteps)
             
         Returns:
             embeddings: (B, T, embed_dim)
         """
         B = x.shape[0]
         
-        # Reshape to (B, T, timestep_dim) = (B, 64, 768)
-        x = x.view(B, self.n_timesteps, self.timestep_dim)
+        # Auto-detect timesteps from input size
+        T = x.shape[1] // self.timestep_dim
+        
+        # Reshape to (B, T, timestep_dim)
+        x = x.view(B, T, self.timestep_dim)
         
         # Project to embed_dim
         x = self.timestep_proj(x)  # (B, T, embed_dim)
@@ -245,6 +254,8 @@ class LeWorldModel(nn.Module):
     """
     LeWorldModel (LeWM): Stable End-to-End JEPA from pixels.
     
+    Auto-detects input size (32 or 64 timesteps) from data.
+    
     Key features:
     - Only 2 loss terms: prediction MSE + Gaussian regularizer
     - Stable training without EMA, pretrained encoders, or auxiliary losses
@@ -252,9 +263,10 @@ class LeWorldModel(nn.Module):
     """
     def __init__(
         self,
+        input_dim=None,         # Auto-detect from data (24576 for 32 steps, 49152 for 64)
         embed_dim=256,          # Latent embedding dimension
-        n_timesteps=64,         # Number of timesteps in input (64 for better temporal modeling)
-        num_layers=8,           # Number of transformer layers (increased for 64 timesteps)
+        n_timesteps=None,       # Auto-detect from input_dim
+        num_layers=8,           # Number of transformer layers in predictor
         num_heads=8,            # Number of attention heads
         mlp_ratio=4.0,          # MLP hidden dim ratio
         drop=0.1,               # Dropout rate
@@ -266,9 +278,9 @@ class LeWorldModel(nn.Module):
         self.embed_dim = embed_dim
         self.use_classifier = use_classifier
         
-        # 1. Embedder (encodes input to latent space)
+        # 1. Embedder (encodes input to latent space, auto-detects timesteps)
         self.embedder = Embedder(
-            input_dim=24576,
+            input_dim=input_dim,
             embed_dim=embed_dim,
             n_timesteps=n_timesteps
         )
@@ -292,11 +304,11 @@ class LeWorldModel(nn.Module):
         if use_classifier:
             self.classifier = nn.Sequential(
                 nn.Linear(embed_dim, 512),
-                nn.BatchNorm1d(512),
-                nn.GELU(),
+                nn.ReLU(),
                 nn.Dropout(drop),
                 nn.Linear(512, 256),
-                nn.GELU(),
+                nn.ReLU(),
+                nn.Dropout(drop),
                 nn.Linear(256, n_classes)
             )
         

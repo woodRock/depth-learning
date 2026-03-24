@@ -290,10 +290,10 @@ def train():
     # Select Model Architecture
     if args.model == "lewm":
         # LeWorldModel: End-to-end JEPA with Gaussian regularization
+        # Auto-detects input size (32 or 64 timesteps) from data
         model = LeWorldModel(
             embed_dim=config.embed_dim,
-            n_timesteps=64,  # 64 timesteps for better temporal modeling
-            num_layers=8,    # Deeper transformer for longer sequences
+            num_layers=8,
             num_heads=8,
             mlp_ratio=4.0,
             drop=0.1,
@@ -304,7 +304,7 @@ def train():
         print("    - End-to-end training from raw pixels")
         print("    - Gaussian regularizer for stable latent space")
         print("    - Autoregressive transformer predictor")
-        print("    - 64-timestep context for temporal patterns")
+        print("    - Auto-detects 32 or 64 timestep input")
         
     elif args.model == "conv":
         ac_encoder = ConvEncoder(embed_dim=config.embed_dim)
@@ -379,12 +379,17 @@ def train():
             vis, ac, labels = vis.to(device), ac.to(device), labels.to(device)
             optimizer.zero_grad()
 
+            # Initialize loss variables
+            pred_loss = torch.tensor(0.0, device=device)
+            loss_cls = torch.tensor(0.0, device=device)
+            sigreg_loss = torch.tensor(0.0, device=device)
+
             if args.model == "lewm":
-                # LeWM forward pass
+                # LeWM forward pass (acoustic-only, no visual input needed)
                 pred_emb, goal_emb, species_logits = model(ac)
                 
                 # Compute LeWM loss
-                loss, pred_loss, sigreg_loss, cls_loss = model.compute_loss(
+                loss, pred_loss, sigreg_loss, loss_cls = model.compute_loss(
                     pred_emb, goal_emb, species_logits, labels, 
                     sigreg_weight=args.sigreg_weight
                 )
