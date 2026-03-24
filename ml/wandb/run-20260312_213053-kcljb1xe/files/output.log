@@ -1,0 +1,149 @@
+--- Starting TRANSFORMER Multi-Task Training on mps ---
+Balanced Dataset: 1001 Fish frames, 0 Empty frames.
+Balanced Dataset: 1001 Fish frames, 0 Empty frames.
+/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/transformer.py:392: UserWarning: enable_nested_tensor is True, but self.use_nested_tensor is False because encoder_layer.norm_first was True
+  warnings.warn(
+Epoch 1/50 [Train]: 100%|█████████████████████| 25/25 [00:12<00:00,  2.06it/s, loss=0.867, acc=65.2%]
+Epoch 1 Results: Train Acc: 65.2% | Val Acc: 60.7% | Val Sim: 0.572
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 2/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.21it/s, loss=0.914, acc=66.6%]
+Epoch 2 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.588
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 3/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.11it/s, loss=0.875, acc=66.6%]
+Epoch 3 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.592
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 4/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.13it/s, loss=0.795, acc=66.6%]
+Epoch 4 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.593
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 5/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.16it/s, loss=0.725, acc=66.6%]
+Epoch 5 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.592
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 6/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.16it/s, loss=0.911, acc=66.6%]
+Epoch 6 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.593
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 7/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.16it/s, loss=0.827, acc=66.6%]
+Epoch 7 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.593
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 8/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.14it/s, loss=0.990, acc=66.6%]
+Epoch 8 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.593
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 9/50 [Train]: 100%|█████████████████████| 25/25 [00:11<00:00,  2.16it/s, loss=0.839, acc=66.6%]
+Epoch 9 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.593
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 10/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.15it/s, loss=0.873, acc=66.6%]
+Epoch 10 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.595
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 11/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.18it/s, loss=0.775, acc=66.6%]
+Epoch 11 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.595
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 12/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.18it/s, loss=0.831, acc=66.6%]
+Epoch 12 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.594
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 13/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.06it/s, loss=0.854, acc=66.6%]
+Epoch 13 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.596
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 14/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.13it/s, loss=0.906, acc=66.6%]
+Epoch 14 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.596
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 15/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.12it/s, loss=0.849, acc=66.6%]
+Epoch 15 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.594
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 16/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.12it/s, loss=0.741, acc=66.6%]
+Epoch 16 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.595
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 17/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.10it/s, loss=0.868, acc=66.6%]
+Epoch 17 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.595
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 18/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.10it/s, loss=0.733, acc=66.6%]
+Epoch 18 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.597
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 19/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.08it/s, loss=0.765, acc=66.6%]
+Epoch 19 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.595
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 20/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.10it/s, loss=0.790, acc=66.6%]
+Epoch 20 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.595
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 21/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.11it/s, loss=0.771, acc=66.6%]
+Epoch 21 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.596
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 22/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.11it/s, loss=0.887, acc=66.6%]
+Epoch 22 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.595
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 23/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.07it/s, loss=0.750, acc=66.6%]
+Epoch 23 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.598
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 24/50 [Train]: 100%|████████████████████| 25/25 [00:12<00:00,  2.02it/s, loss=0.838, acc=66.6%]
+Epoch 24 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.600
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 25/50 [Train]: 100%|████████████████████| 25/25 [00:11<00:00,  2.09it/s, loss=0.825, acc=66.6%]
+Epoch 25 Results: Train Acc: 66.6% | Val Acc: 60.7% | Val Sim: 0.598
+--> Saved New Best Model (Val Acc: 60.7%)
+Epoch 26/50 [Train]:  68%|█████████████▌      | 17/25 [00:07<00:03,  2.27it/s, loss=0.824, acc=67.8%]
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 250, in <module>
+    train()
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 177, in train
+    for vis, ac, labels in pbar:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 734, in __next__
+    data = self._next_data()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 790, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 50, in fetch
+    data = self.dataset.__getitems__(possibly_batched_index)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in __getitems__
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in <listcomp>
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 100, in __getitem__
+    vis_img = self.transform(vis_img)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/transforms.py", line 95, in __call__
+    img = t(img)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/transforms.py", line 354, in forward
+    return F.resize(img, self.size, self.interpolation, self.max_size, self.antialias)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/functional.py", line 477, in resize
+    return F_pil.resize(img, size=output_size, interpolation=pil_interpolation)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/_functional_pil.py", line 253, in resize
+    return img.resize(tuple(size[::-1]), interpolation)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/PIL/Image.py", line 2321, in resize
+    return self._new(self.im.resize(size, resample, box))
+KeyboardInterrupt
+Traceback (most recent call last):
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 250, in <module>
+    train()
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 177, in train
+    for vis, ac, labels in pbar:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/tqdm/std.py", line 1181, in __iter__
+    for obj in iterable:
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 734, in __next__
+    data = self._next_data()
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataloader.py", line 790, in _next_data
+    data = self._dataset_fetcher.fetch(index)  # may raise StopIteration
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/_utils/fetch.py", line 50, in fetch
+    data = self.dataset.__getitems__(possibly_batched_index)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in __getitems__
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/utils/data/dataset.py", line 416, in <listcomp>
+    return [self.dataset[self.indices[idx]] for idx in indices]
+  File "/Users/woodj/Desktop/depth-learning/ml/train.py", line 100, in __getitem__
+    vis_img = self.transform(vis_img)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/transforms.py", line 95, in __call__
+    img = t(img)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1773, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torch/nn/modules/module.py", line 1784, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/transforms.py", line 354, in forward
+    return F.resize(img, self.size, self.interpolation, self.max_size, self.antialias)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/functional.py", line 477, in resize
+    return F_pil.resize(img, size=output_size, interpolation=pil_interpolation)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/torchvision/transforms/_functional_pil.py", line 253, in resize
+    return img.resize(tuple(size[::-1]), interpolation)
+  File "/Users/woodj/Library/Python/3.9/lib/python/site-packages/PIL/Image.py", line 2321, in resize
+    return self._new(self.im.resize(size, resample, box))
+KeyboardInterrupt

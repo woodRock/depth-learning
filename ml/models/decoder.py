@@ -3,20 +3,12 @@ import torch.nn as nn
 
 class LatentDecoder(nn.Module):
     """
-    Decodes a 512-dim embedding back into a 224x224 RGB image.
-    Uses Transposed Convolutions to upsample the latent vector.
+    Decodes a [512, 7, 7] spatial latent grid back into a 224x224 RGB image.
+    Updated for 7x7 native ResNet features.
     """
-    def __init__(self, latent_dim=512):
+    def __init__(self, in_channels=512):
         super().__init__()
         
-        # 1. Project latent to a small spatial grid
-        # 512 -> (512 * 7 * 7)
-        self.fc = nn.Sequential(
-            nn.Linear(latent_dim, 512 * 7 * 7),
-            nn.ReLU()
-        )
-        
-        # 2. Upsample via Transposed Convolutions
         self.decoder = nn.Sequential(
             # [B, 512, 7, 7] -> [B, 256, 14, 14]
             nn.ConvTranspose2d(512, 256, kernel_size=4, stride=2, padding=1),
@@ -40,10 +32,9 @@ class LatentDecoder(nn.Module):
             
             # [B, 32, 112, 112] -> [B, 3, 224, 224]
             nn.ConvTranspose2d(32, 3, kernel_size=4, stride=2, padding=1),
-            nn.Sigmoid() # Normalize pixel values to [0, 1]
+            nn.Sigmoid() 
         )
 
     def forward(self, x):
-        x = self.fc(x)
-        x = x.view(-1, 512, 7, 7)
+        # Input x is [B, 512, 7, 7]
         return self.decoder(x)

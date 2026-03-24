@@ -16,6 +16,11 @@ from glob import glob
 from models.acoustic import ConvEncoder, TransformerEncoder
 from models.jepa import CrossModalJEPA
 from models.decoder import LatentDecoder
+from models.transformer_translator import AcousticToImageTransformer
+from models.lstm import AcousticLSTM
+from models.ast import AcousticAST
+from models.fusion import MaskedAttentionFusion
+from models.mae import AcousticMAE
 
 app = FastAPI()
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -28,78 +33,151 @@ transform = transforms.Compose([
 
 model = None
 decoder = None
+model_type = "conv"
 history_buffer = None
 ping_count = 0
-prediction_history = [] # For smoothing
+prediction_history = [] 
 
 @app.on_event("startup")
 async def load_model():
-    global model, decoder, history_buffer, ping_count, prediction_history
+    global model, decoder, model_type, history_buffer, ping_count, prediction_history
     weights_path = "weights/fish_clip_model.pth"
     decoder_path = "weights/decoder_model.pth"
+    translator_path = "weights/translator_best.pth"
     config_path = "weights/model_config.json"
     
-    history_buffer = np.zeros((32, 256), dtype=np.float32)
+    # 3-channel history (32 pings, 256 depth, 3 frequencies)
+    history_buffer = np.zeros((32, 256, 3), dtype=np.float32)
     ping_count = 0
     prediction_history = []
     
-    # Load JEPA Model
+    # Load JEPA Model or others
     model_type = "conv"
     if os.path.exists(config_path):
         with open(config_path, "r") as f:
             cfg = json.load(f)
             model_type = cfg.get("model_type", "conv")
 
-    ac_encoder = ConvEncoder() if model_type == "conv" else TransformerEncoder()
-    model = CrossModalJEPA(ac_encoder=ac_encoder)
-    if os.path.exists(weights_path):
-        model.load_state_dict(torch.load(weights_path, map_location=device))
+    if model_type == "translator":
+        model = AcousticToImageTransformer(d_model=256, patch_size=16)
+        if os.path.exists(translator_path):
+            model.load_state_dict(torch.load(translator_path, map_location=device))
+        print("Loaded Translator Model.")
+    elif model_type == "mae":
+        model = AcousticMAE()
+        # Search for any mae weights
+        mae_weights = glob("weights/mae_epoch_*.pth")
+        if mae_weights:
+            latest = sorted(mae_weights)[-1]
+            model.load_state_dict(torch.load(latest, map_location=device))
+            print(f"Loaded MAE Model from {latest}")
+        elif os.path.exists("weights/mae_best.pth"):
+            model.load_state_dict(torch.load("weights/mae_best.pth", map_location=device))
+            print("Loaded MAE Model.")
+    elif model_type == "lstm":
+        model = AcousticLSTM(input_dim=768, hidden_dim=256, num_classes=4)
+        if os.path.exists("weights/lstm_best.pth"): # Assuming a name
+            model.load_state_dict(torch.load("weights/lstm_best.pth", map_location=device))
+        print("Loaded LSTM Model.")
+    elif model_type == "ast":
+        model = AcousticAST(d_model=256, num_classes=4)
+        if os.path.exists("weights/ast_best.pth"):
+            model.load_state_dict(torch.load("weights/ast_best.pth", map_location=device))
+        print("Loaded AST Model.")
+    elif model_type == "fusion":
+        model = MaskedAttentionFusion(d_model=256, nhead=8, num_classes=4)
+        if os.path.exists("weights/fusion_best.pth"):
+            model.load_state_dict(torch.load("weights/fusion_best.pth", map_location=device))
+        print("Loaded Fusion Model.")
+    else:
+        ac_encoder = ConvEncoder() if model_type == "conv" else TransformerEncoder()
+        model = CrossModalJEPA(ac_encoder=ac_encoder)
+        if os.path.exists(weights_path):
+            model.load_state_dict(torch.load(weights_path, map_location=device))
+        print(f"Loaded {model_type.upper()} JEPA Model.")
+
     model.to(device)
     model.eval()
 
-    # Load Decoder
-    decoder = LatentDecoder()
-    if os.path.exists(decoder_path):
-        decoder.load_state_dict(torch.load(decoder_path, map_location=device))
-    decoder.to(device)
-    decoder.eval()
+    # Load Decoder (Only needed for JEPA models)
+    if model_type in ["conv", "transformer"]:
+        decoder = LatentDecoder()
+        if os.path.exists(decoder_path):
+            decoder.load_state_dict(torch.load(decoder_path, map_location=device))
+        decoder.to(device)
+        decoder.eval()
     
-    print(f"Server ready with {model_type.upper()} model + Smoothing.")
+    print(f"Server ready with {model_type.upper()} architecture.")
 
 @app.post("/predict_acoustic")
 async def predict(file: UploadFile = File(...)):
-    global history_buffer, ping_count, prediction_history
+    global prediction_history
     contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert("RGB")
-    
-    img_np = np.array(image)
-    latest_ping_v = img_np[:, -1, 0].astype(np.float32) / 255.0
-    
-    history_buffer = np.roll(history_buffer, -1, axis=0)
-    history_buffer[-1, :] = latest_ping_v
-    ping_count += 1
-    
-    # Warm-up phase
-    if ping_count < 16:
-        return {
-            "predictions": [("Warm-up...", 0.0)],
-            "generated_image": ""
-        }
+    image = Image.open(io.BytesIO(contents)).convert("RGB")  # Ensure RGB, not RGBA
 
-    history_flat = torch.from_numpy(history_buffer.flatten()).unsqueeze(0).to(device)
+    img_np = np.array(image)  # (256 height, 512 width, 3) = (depth, pings, channels)
+    
+    # The echogram scrolls horizontally: X-axis = time (pings), Y-axis = depth
+    # Extract the rightmost 32 pings (columns) and transpose to match training format
+    # Training format: (32 pings, 256 depth, 3 channels)
+    
+    # Extract last 32 pings: (256, 512, 3) -> (256, 32, 3)
+    last_32_pings = img_np[:, -32:, :]
+    
+    # Transpose to match training format: (32, 256, 3)
+    history_32 = last_32_pings.transpose(1, 0, 2).astype(np.float32) / 255.0
+
+    # Flatten to (1, 32 * 256 * 3) = (1, 24576)
+    history_flat = torch.from_numpy(history_32.flatten()).unsqueeze(0).to(device)
     
     with torch.no_grad():
-        vis_latent, species_logits = model.forward_ac_to_vis_latent(history_flat)
+        if model_type == "translator":
+            gen_img_tensor, species_logits = model(history_flat)
+        elif model_type == "mae":
+            # RECONSTRUCTION TEST
+            pred, mask = model(history_flat)
+            # Unpatchify (1, 64, 384) -> (1, 3, 32, 256)
+            p1, p2 = 8, 16
+            h, w = 4, 16
+            gen_img_tensor = pred.view(1, h, w, 3, p1, p2)
+            gen_img_tensor = gen_img_tensor.permute(0, 3, 1, 4, 2, 5).contiguous()
+            gen_img_tensor = gen_img_tensor.view(1, 3, 32, 256)
+            
+            # Resize to 224x224 so Bevy doesn't panic
+            gen_img_tensor = F.interpolate(gen_img_tensor, size=(224, 224), mode="bilinear", align_corners=False)
+            
+            # MAE doesn't classify, so return empty/neutral logits
+            species_logits = torch.zeros((1, 4)).to(device)
+        elif model_type == "lstm":
+            species_logits = model(history_flat)
+            gen_img_tensor = None # No reconstruction
+        elif model_type == "ast":
+            species_logits = model(history_flat)
+            gen_img_tensor = None
+        elif model_type == "fusion":
+            # Acoustic-only inference for Fusion model
+            # We use zeros for visual features, which is now supported by Modality Dropout training
+            vis_feats = torch.zeros((1, 2048)).to(device)
+            ac_img = history_flat.view(-1, 32, 256, 3).permute(0, 3, 1, 2)
+            species_logits = model(vis_feats, ac_img, mask_ratio=0.0)
+            gen_img_tensor = None
+        else:
+            # JEPA
+            vis_latent, species_logits = model.forward_ac_to_vis_latent(history_flat)
+            gen_img_tensor = decoder(vis_latent)
         
-        # Generation
-        gen_img_tensor = decoder(vis_latent)
-        gen_img_np = (gen_img_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
-        pil_img = Image.fromarray(gen_img_np)
-        buffered = io.BytesIO()
-        pil_img.save(buffered, format="PNG")
-        img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        # Generation encoding
+        if gen_img_tensor is not None:
+            gen_img_np = (gen_img_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+            pil_img = Image.fromarray(gen_img_np)
+            buffered = io.BytesIO()
+            pil_img.save(buffered, format="PNG")
+            img_base64 = base64.b64encode(buffered.getvalue()).decode()
+        else:
+            # Placeholder or empty if model doesn't support reconstruction
+            img_base64 = ""
 
-        # C. Direct Classification + Smoothing
+        # Classification + Smoothing
         probs = F.softmax(species_logits, dim=1).squeeze()
         prediction_history.append(probs)
         if len(prediction_history) > 10: 

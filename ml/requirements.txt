@@ -1,11 +1,21 @@
-torch
-torchvision
-numpy
-Pillow
-tqdm
-fastapi
-uvicorn
-python-multipart
-wandb
-python-dotenv
-ruff
+# Core ML
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Data Processing
+numpy>=1.24.0
+Pillow>=9.5.0
+scikit-learn>=1.2.0
+
+# API Server
+fastapi>=0.100.0
+uvicorn>=0.23.0
+python-multipart>=0.0.6
+
+# Experiment Tracking
+wandb>=0.15.0
+python-dotenv>=1.0.0
+
+# Development
+ruff>=0.15.0
+
