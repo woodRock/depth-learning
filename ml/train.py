@@ -243,9 +243,8 @@ def train():
     if args.model == "lewm":
         # LeWorldModel: End-to-end JEPA with Gaussian regularization
         model = LeWorldModel(
-            input_dim=768,  # 32 * 256 * 3 flattened
             embed_dim=config.embed_dim,
-            patch_size=16,
+            n_timesteps=32,
             num_layers=6,
             num_heads=8,
             mlp_ratio=4.0,

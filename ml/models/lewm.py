@@ -56,24 +56,20 @@ class SIGReg(nn.Module):
 class Embedder(nn.Module):
     """
     Embeds input sequences into latent space.
-    Similar to LeWM's embedder with patch embedding + projection MLP.
+    Input: (B, 32*256*3) flattened echogram history
+    Output: (B, T, embed_dim) where T=32 timesteps
     """
-    def __init__(self, input_dim=768, embed_dim=256, patch_size=16):
+    def __init__(self, input_dim=24576, embed_dim=256, n_timesteps=32):
         super().__init__()
-        self.patch_size = patch_size
+        self.n_timesteps = n_timesteps
         self.embed_dim = embed_dim
         
-        # Patch embedding (1D convolution over input sequence)
-        self.patch_embed = nn.Conv1d(
-            in_channels=input_dim // patch_size,
-            out_channels=embed_dim,
-            kernel_size=1,
-            stride=1
-        )
+        # Each timestep has 256*3 = 768 features (256 depth bins × 3 channels)
+        self.timestep_dim = 256 * 3  # 768
         
-        # Projection MLP
-        self.projector = nn.Sequential(
-            nn.Linear(embed_dim, embed_dim * 2),
+        # Project each timestep to embed_dim
+        self.timestep_proj = nn.Sequential(
+            nn.Linear(self.timestep_dim, embed_dim * 2),
             nn.SiLU(),
             nn.Linear(embed_dim * 2, embed_dim)
         )
@@ -81,28 +77,18 @@ class Embedder(nn.Module):
     def forward(self, x):
         """
         Args:
-            x: (B, T*patch_size) or (B, T, D) input tensor
+            x: (B, 24576) flattened input (32 timesteps × 768 features)
             
         Returns:
             embeddings: (B, T, embed_dim)
         """
-        if x.ndim == 2:
-            # Reshape (B, T*patch_size) -> (B, T, patch_size)
-            B = x.shape[0]
-            T = x.shape[1] // self.patch_size
-            x = x.view(B, T, self.patch_size)
+        B = x.shape[0]
         
-        # Transpose for Conv1d: (B, T, patch_size) -> (B, patch_size, T)
-        x = x.transpose(1, 2)
+        # Reshape to (B, T, timestep_dim) = (B, 32, 768)
+        x = x.view(B, self.n_timesteps, self.timestep_dim)
         
-        # Patch embedding
-        x = self.patch_embed(x)  # (B, embed_dim, T')
-        
-        # Transpose back: (B, T', embed_dim)
-        x = x.transpose(1, 2)
-        
-        # Project
-        x = self.projector(x)
+        # Project to embed_dim
+        x = self.timestep_proj(x)  # (B, T, embed_dim)
         
         return x
 
@@ -282,7 +268,11 @@ class LeWorldModel(nn.Module):
         self.use_classifier = use_classifier
         
         # 1. Embedder (encodes input to latent space)
-        self.embedder = Embedder(input_dim=input_dim, embed_dim=embed_dim, patch_size=patch_size)
+        self.embedder = Embedder(
+            input_dim=24576,  # 32 * 256 * 3 flattened
+            embed_dim=embed_dim,
+            n_timesteps=32
+        )
         
         # 2. Predictor (autoregressive transformer)
         self.predictor = ARPredictor(
