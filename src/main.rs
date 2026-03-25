@@ -24,6 +24,10 @@ const ECHOGRAM_HEIGHT: u32 = 256;
 const BIRD_EYE_WIDTH: u32 = 512;
 const BIRD_EYE_HEIGHT: u32 = 512;
 
+// Echosounder realism parameters
+const PULSE_LENGTH_M: f32 = 0.5;  // Pulse length in meters
+const TVG_GAIN: f32 = 0.15;  // Time-varied gain coefficient
+
 // Dynamic population control
 const POPULATION_CYCLE_PERIOD: f32 = 120.0; // Seconds for full cycle
 const MIN_ACTIVE_RATIO: f32 = 0.3;  // Minimum % of schools active
@@ -39,7 +43,7 @@ struct DifficultyMode {
 impl DifficultyMode {
     fn new() -> Self {
         Self {
-            current: 2,  // Start on Hard (current behavior)
+            current: 0,  // Start on Easy (simplest behavior)
             names: vec!["Easy", "Medium", "Hard"],
         }
     }
@@ -130,9 +134,10 @@ enum Species {
 impl Species {
     fn preferred_depth_range(&self) -> (f32, f32) {
         match self {
-            Species::Kingfish => (7.0, 9.5),
-            Species::Snapper => (3.0, 6.5),
-            Species::Cod => (0.0, 2.5),
+            // All species now swim within transducer detection range (0-10m depth)
+            Species::Kingfish => (3.0, 5.5),  // Mid-depth (was 7.0-9.5, too deep)
+            Species::Snapper => (2.0, 5.0),   // Mid-depth
+            Species::Cod => (0.5, 3.0),       // Bottom-dwelling
             Species::Empty => (0.0, 0.0),
         }
     }
@@ -310,6 +315,7 @@ fn main() {
         .init_resource::<DatasetExporter>()
         .init_resource::<InferenceResult>()
         .init_resource::<DynamicPopulation>()
+        .init_resource::<EmptyFrameGenerator>()  // For generating empty frames
         .insert_resource(DifficultyMode::new())  // Add difficulty mode resource
         .add_systems(
             Startup,
@@ -330,7 +336,8 @@ fn main() {
                 sync_cpu_buffer_system,
                 update_population_system,
                 update_school_headings_system,
-                difficulty_mode_system,  // NEW: Handle difficulty switching
+                difficulty_mode_system,  // Handle difficulty switching
+                empty_frame_generator_system,  // Generate empty frames periodically
             ),
         )
         .run();
@@ -418,6 +425,7 @@ fn setup_scene(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     asset_server: Res<AssetServer>,
+    difficulty: Res<DifficultyMode>,
 ) {
     for i in -5..=5 {
         let x = i as f32 * 4.0;
@@ -464,7 +472,19 @@ fn setup_scene(
 
     // Distribute fish among schools
     let fish_per_school = FISH_COUNT / SCHOOL_COUNT;
-    
+
+    // Easy mode: All schools swim in the same direction
+    // Medium/Hard: Each school gets its own direction
+    let all_same_direction = if difficulty.current == 0 {
+        // Easy: One shared direction for all schools (swim east)
+        let shared_dir = Vec3::new(1.0, 0.0, 0.0);
+        info!("🎯 Easy Mode: All fish swimming east {:?}", shared_dir);
+        Some(shared_dir)
+    } else {
+        info!("🎯 {}/Hard Mode: Schools getting random directions", difficulty.name());
+        None
+    };
+
     for (school_id, (school_center, species)) in school_centers.iter().enumerate() {
         for _ in 0..fish_per_school {
             // Cluster fish around school center
@@ -476,8 +496,14 @@ fn setup_scene(
             );
 
             let speed = species.speed();
-            let school_direction = Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0)).normalize();
             
+            // Determine school direction
+            let school_direction = if let Some(shared_dir) = all_same_direction {
+                shared_dir
+            } else {
+                Vec3::new(rng.gen_range(-1.0..1.0), 0.0, rng.gen_range(-1.0..1.0)).normalize()
+            };
+
             commands.spawn((
                 SceneRoot(fish_handle.clone()),
                 Transform::from_translation(pos).with_scale(Vec3::splat(species.scale())),
@@ -843,6 +869,24 @@ fn model_inference_system(
 
 use bevy::render::view::screenshot::{Screenshot, save_to_disk};
 
+/// Resource to track empty frame generation
+#[derive(Resource)]
+struct EmptyFrameGenerator {
+    timer: f32,              // Time since last empty period
+    empty_period_timer: f32, // Time remaining in current empty period
+    is_empty_period: bool,   // Whether we're currently in an empty period
+}
+
+impl Default for EmptyFrameGenerator {
+    fn default() -> Self {
+        Self {
+            timer: 0.0,
+            empty_period_timer: 0.0,
+            is_empty_period: false,
+        }
+    }
+}
+
 fn dataset_exporter_system(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
@@ -850,12 +894,13 @@ fn dataset_exporter_system(
     ui_state: Res<UIState>,
     images: Res<Assets<Image>>,
     inference: Res<InferenceResult>,
+    difficulty: Res<DifficultyMode>,
     _bird_eye_camera: Query<Entity, With<BirdEyeCamera>>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
         exporter.is_exporting = !exporter.is_exporting;
         if exporter.is_exporting {
-            info!("Recording Started...");
+            info!("Recording Started... (Difficulty: {})", difficulty.name());
         } else {
             info!("Recording Stopped. Total frames: {}", exporter.frame_count);
         }
@@ -883,7 +928,15 @@ fn dataset_exporter_system(
     if (exporter.is_exporting && inference.timer.just_finished()) || trigger_manual {
         exporter.frame_count += 1;
         let frame = exporter.frame_count;
-        let export_path = exporter.export_path.clone();
+        
+        // Create difficulty-specific export path
+        let difficulty_folder = match difficulty.current {
+            0 => "easy",
+            1 => "medium",
+            2 => "hard",
+            _ => "medium",
+        };
+        let export_path = format!("{}/{}", exporter.export_path, difficulty_folder);
 
         if !Path::new(&export_path).exists() {
             let _ = std::fs::create_dir_all(&export_path);
@@ -895,7 +948,7 @@ fn dataset_exporter_system(
         let ac_img = images.get(&ui_state.echogram_texture).and_then(|img| {
             img.clone().try_into_dynamic().ok().map(|d| d.to_rgba8())
         });
-        
+
         let mut full_history = Vec::new();
         for ping in &exporter.ping_history {
             full_history.extend_from_slice(ping);
@@ -922,8 +975,8 @@ fn dataset_exporter_system(
                 let _ = std::fs::write(path, meta);
             }
         });
-        
-        info!("Queued export for frame {} (Acoustic + History)", frame);
+
+        info!("Queued export for frame {} to '{}' (Acoustic + History)", frame, difficulty_folder);
     }
 }
 
@@ -1005,10 +1058,21 @@ fn camera_controller_system(
 
 fn boid_movement_system(
     time: Res<Time>,
+    difficulty: Res<DifficultyMode>,
     mut query: Query<(&mut Transform, &mut Boid, &Species)>,
 ) {
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
+    
+    // Difficulty-aware steering parameters
+    // Easy: Strong heading adherence, weak flocking
+    // Hard: Weak heading adherence, strong flocking (more natural)
+    let (heading_strength, align_strength, cohere_strength) = match difficulty.current {
+        0 => (0.5, 0.3, 0.2),    // Easy: Strong heading, weak flocking
+        1 => (0.15, 0.8, 0.5),   // Medium: Balanced
+        2 => (0.08, 1.5, 1.0),   // Hard: Weak heading, strong flocking
+        _ => (0.08, 1.5, 1.0),
+    };
 
     let boid_data: Vec<(Vec3, Vec3, Species, u32)> = query
         .iter()
@@ -1054,11 +1118,11 @@ fn boid_movement_system(
             let count_f = neighbor_count as f32;
             alignment = (alignment / count_f).normalize_or_zero() * boid.max_speed;
             let steer_align = (alignment - boid.velocity).clamp_length_max(boid.max_force);
-            acceleration += steer_align * 1.5;
+            acceleration += steer_align * align_strength;
 
             cohesion = (cohesion / count_f - pos).normalize_or_zero() * boid.max_speed;
             let steer_cohere = (cohesion - boid.velocity).clamp_length_max(boid.max_force);
-            acceleration += steer_cohere * 1.0;
+            acceleration += steer_cohere * cohere_strength;
 
             if separation.length_squared() > 0.0 {
                 separation = (separation / count_f).normalize_or_zero() * boid.max_speed;
@@ -1067,8 +1131,8 @@ fn boid_movement_system(
             }
         }
 
-        // School heading preference (gentle steering toward school direction)
-        let heading_preference = (boid.base_heading - boid.velocity.normalize_or_zero()) * 0.08;
+        // School heading preference (strength depends on difficulty)
+        let heading_preference = (boid.base_heading - boid.velocity.normalize_or_zero()) * heading_strength;
         acceleration += heading_preference * boid.max_speed;
 
         let forward_drive = boid.velocity.normalize_or_zero() * 0.1;
@@ -1354,6 +1418,56 @@ fn difficulty_mode_system(
     if keys.just_pressed(KeyCode::KeyM) {
         difficulty.cycle();
         println!("🎯 Difficulty changed to: {}", difficulty.name());
+    }
+}
+
+/// Periodically make fish swim away from transducer to create empty frames
+/// This ensures we get ~15-20% empty frames in the dataset
+fn empty_frame_generator_system(
+    time: Res<Time>,
+    difficulty: Res<DifficultyMode>,
+    mut empty_gen: ResMut<EmptyFrameGenerator>,
+    mut fish_query: Query<&mut Boid>,
+) {
+    let dt = time.delta_secs();
+    
+    // Configuration
+    let empty_interval = 20.0;  // Seconds between empty periods
+    let empty_duration = 3.0;   // How long empty period lasts
+    let swim_away_heading = Vec3::new(0.0, 0.0, 1.0);  // Swim away in Z direction
+    
+    // Only generate empty frames in Easy mode (for clean dataset)
+    // Medium/Hard will have natural gaps from fish movement
+    if difficulty.current != 0 {
+        return;
+    }
+    
+    empty_gen.timer += dt;
+    
+    if empty_gen.is_empty_period {
+        // Currently in empty period - make all fish swim away
+        empty_gen.empty_period_timer -= dt;
+        
+        for mut boid in fish_query.iter_mut() {
+            // Override heading to swim away from transducer
+            boid.base_heading = swim_away_heading;
+            boid.velocity = swim_away_heading * boid.max_speed;
+        }
+        
+        if empty_gen.empty_period_timer <= 0.0 {
+            // End empty period
+            empty_gen.is_empty_period = false;
+            empty_gen.timer = 0.0;
+            info!("📊 Empty period ended - fish returning to normal behavior");
+        }
+    } else {
+        // Normal behavior - check if we should start empty period
+        if empty_gen.timer > empty_interval {
+            // Start empty period
+            empty_gen.is_empty_period = true;
+            empty_gen.empty_period_timer = empty_duration;
+            info!("📊 Starting empty period ({}s)", empty_duration);
+        }
     }
 }
 

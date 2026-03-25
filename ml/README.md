@@ -1,278 +1,267 @@
-# Depth Learning - Machine Learning Pipeline 🐟
+# Depth Learning ML Module
 
-Multimodal deep learning models for fish species classification from acoustic echogram data.
+Modern, modular training framework for multi-modal fish classification models.
 
----
+## Architecture
 
-## 📋 Overview
+The codebase follows clean software engineering principles:
 
-This ML pipeline trains models to:
-1. **Classify fish species** (Kingfish, Snapper, Cod, Empty) from sonar echograms
-2. **Align acoustic and visual modalities** using JEPA (Joint Embedding Predictive Architecture)
-3. **Reconstruct visual images** from acoustic data (neural rendering)
+- **Separation of Concerns**: Configuration, data loading, models, and training logic are in separate modules
+- **Low Coupling**: Components communicate through well-defined interfaces
+- **Single Responsibility**: Each class/function has one clear purpose
+- **Factory Pattern**: Trainers are created through factory functions
+- **Strategy Pattern**: Different training strategies for different model types
 
-### Models Available
-
-| Model | Description | Best For |
-|-------|-------------|----------|
-| **Transformer** | Depth-aware transformer encoder | **Recommended** - Best accuracy |
-| **Conv** | Residual 2D-CNN encoder | Faster training, good baseline |
-| **LSTM** | Acoustic LSTM encoder | Temporal sequence modeling |
-| **AST** | Acoustic Spectrogram Transformer | Frequency-domain features |
-
----
-
-## 🚀 Quick Start
-
-### 1. Prerequisites
-
-- **Python 3.10+**
-- **GPU** (CUDA or Apple Silicon MPS) recommended
-- **~4GB VRAM** minimum
-
-### 2. Installation
-
-```bash
-# Navigate to ML directory
-cd ml
-
-# Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate  # On macOS/Linux
-# or
-venv\Scripts\activate     # On Windows
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### 3. Generate Training Data
-
-First, run the Rust simulation to generate synthetic echogram data:
-
-```bash
-# In the project root directory
-cargo run --release
-```
-
-**In the simulation:**
-- Press **R** to start/stop recording
-- Press **E** to export single frame
-- Record **500-1000+ frames** for good results
-
-Data is saved to `../dataset/` with:
-- `frame_XXXX_visual.png` - Bird's eye view (ground truth)
-- `frame_XXXX_acoustic.png` - Echogram image
-- `frame_XXXX_history.bin` - 32-ping acoustic history
-- `frame_XXXX_meta.json` - Species metadata
-
----
-
-## 🎯 Training
-
-### Basic Training
-
-```bash
-# Train with default transformer model
-python3 train.py
-
-# Train with specific model
-python3 train.py --model transformer
-python3 train.py --model conv
-python3 train.py --model lstm
-python3 train.py --model ast
-```
-
-### Training Options
-
-```bash
-python3 train.py \
-  --model transformer \
-  --epochs 80 \
-  --lr 3e-4 \
-  --batch-size 32 \
-  --weight-decay 0.05
-```
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--model` | transformer | Model architecture |
-| `--epochs` | 80 | Number of training epochs |
-| `--lr` | 3e-4 | Learning rate |
-| `--batch-size` | 32 | Batch size |
-| `--weight-decay` | 0.05 | Weight decay (L2 regularization) |
-
-### Monitoring Training
-
-Training logs are automatically uploaded to **Weights & Biases** (wandb). View live metrics at:
-https://wandb.ai/victoria-university-of-wellington/depth-learning
-
----
-
-## 🔮 Inference Server
-
-Run the real-time inference server to classify live simulation data:
-
-### 1. Start the Server
-
-```bash
-python3 serve.py
-```
-
-The server will:
-- Load trained weights from `weights/`
-- Listen on `http://127.0.0.1:8000`
-- Accept echogram images and return predictions
-
-### 2. Connect Simulation to Server
-
-In the Bevy simulation, the inference thread automatically connects to the server and displays:
-- **Species predictions** with confidence scores
-- **Reconstructed images** (for JEPA models)
-- **Real-time accuracy** tracking
-
----
-
-## 📁 Model Weights
-
-Trained models are saved in `weights/`:
-
-| File | Description |
-|------|-------------|
-| `fish_clip_model.pth` | Main JEPA + Classifier weights |
-| `decoder_model.pth` | Image reconstruction decoder |
-| `model_config.json` | Model architecture config |
-
-### Using Pre-trained Weights
-
-If you have pre-trained weights, just run:
-```bash
-python3 serve.py
-```
-
-The server automatically loads weights from `weights/`.
-
----
-
-## 🧪 Advanced Training
-
-### Train Image Decoder
-
-For visual reconstruction from acoustic data:
-
-```bash
-python3 train_decoder.py
-```
-
-### Training with Class Balancing
-
-The training script automatically balances classes:
-- Keeps all fish-containing frames
-- Subsamples "Empty" frames to match fish frame count
-
-This prevents the model from biasing toward the majority class.
-
-### Data Augmentation
-
-Training includes these augmentations (applied on-the-fly):
-- **Temporal jitter** - Shift ping sequence
-- **Spatial flip** - Flip depth axis
-- **Channel gain variation** - Simulate sensor noise
-- **Speckle noise** - Realistic sonar noise
-- **Ping dropping** - Simulate transmission loss
-- **Temporal masking** - Drop consecutive pings
-- **Depth-dependent noise** - More noise at extremes
-- **Random occlusion** - Simulate shadows
-
----
-
-## 📊 Expected Performance
-
-| Dataset Size | Expected Accuracy | Training Time (GPU) |
-|--------------|-------------------|---------------------|
-| 200 frames | ~50-60% | 10 min |
-| 500 frames | ~65-70% | 20 min |
-| 1000+ frames | ~75-85% | 40 min |
-
-**Tips for Better Accuracy:**
-1. Record more diverse data (different fish positions, densities)
-2. Train for more epochs (120+)
-3. Use the transformer model
-4. Ensure balanced species distribution in simulation
-
----
-
-## 🐛 Troubleshooting
-
-### CUDA Out of Memory
-
-```bash
-# Reduce batch size
-python3 train.py --batch-size 16
-```
-
-### Model Not Loading
-
-Ensure weights exist:
-```bash
-ls weights/
-# Should show: fish_clip_model.pth, model_config.json
-```
-
-### Import Errors
-
-```bash
-# Reinstall dependencies
-pip install -r requirements.txt --upgrade
-```
-
-### Slow Training
-
-- Use GPU: Ensure `torch.cuda.is_available()` returns `True`
-- Reduce epochs for testing: `--epochs 10`
-- Use Conv model (faster than Transformer)
-
----
-
-## 📈 Project Structure
+## Directory Structure
 
 ```
 ml/
-├── models/
-│   ├── __init__.py
-│   ├── acoustic.py      # Conv & Transformer encoders
-│   ├── jepa.py          # Cross-modal JEPA model
-│   ├── decoder.py       # Image reconstruction decoder
-│   ├── lstm.py          # LSTM encoder
-│   ├── ast.py           # Acoustic Spectrogram Transformer
-│   └── ...
-├── train.py             # Main training script
-├── train_decoder.py     # Decoder training
-├── serve.py             # Inference server
-├── debug_data.py        # Data format debugging
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
+├── train.py              # Unified CLI entry point
+├── config.py             # Configuration management (dataclasses)
+├── data.py               # Data loading and transforms
+├── trainers.py           # Training strategies for JEPA/LeWM
+├── trainers_advanced.py  # Training strategies for Decoder/Fusion/Translator/MAE
+└── models/               # All model architectures
+    ├── __init__.py
+    ├── acoustic.py       # Acoustic encoders (Conv, Transformer)
+    ├── lstm.py           # LSTM encoder
+    ├── ast.py            # Audio Spectral Transformer
+    ├── jepa.py           # Cross-modal JEPA
+    ├── lewm.py           # LeWorldModel
+    ├── mae.py            # Masked Autoencoder
+    ├── fusion.py         # Masked Attention Fusion
+    ├── transformer_translator.py
+    ├── decoder.py
+    └── clip.py
 ```
 
----
+## Usage
 
-## 📚 Additional Resources
+### Training Models
 
-- **Main Project README**: `../README.md`
-- **WandB Dashboard**: https://wandb.ai/victoria-university-of-wellington/depth-learning
-- **PyTorch Docs**: https://pytorch.org/docs/
+All training is done through the unified `train.py` script:
 
----
+```bash
+# JEPA with Transformer encoder
+python ml/train.py jepa --model transformer --epochs 80 --with-aug
 
-## 🎓 Research
+# JEPA with different encoders
+python ml/train.py jepa --model conv --epochs 80
+python ml/train.py jepa --model lstm --epochs 80
+python ml/train.py jepa --model ast --epochs 80
 
-This project uses **Joint Embedding Predictive Architecture (JEPA)** for multimodal alignment between acoustic and visual data. For more details, see:
+# LeWorldModel (end-to-end)
+python ml/train.py lewm --epochs 100 --sigreg-weight 0.1
 
-- LeCun, Y. (2022). "A Path Towards Autonomous Machine Intelligence"
-- Assran, M. et al. (2023). "Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture"
+# Latent Decoder
+python ml/train.py decoder --epochs 50
 
----
+# Fusion Model
+python ml/train.py fusion --epochs 50 --dropout-prob 0.5
 
-## 📄 License
+# Acoustic-to-Image Translator
+python ml/train.py translator --epochs 100 --d-model 256
 
-MIT License - Created for sustainable fisheries research
+# Masked Autoencoder (pre-training)
+python ml/train.py mae --epochs 100 --mask-ratio 0.75
+```
+
+### Common Options
+
+```bash
+# Dataset difficulty
+--dataset {easy,medium,hard}  # Default: easy
+
+# Data augmentation (disabled by default)
+--with-aug                     # Enable full augmentation
+--light-aug                    # Enable light augmentation (flip only)
+--rotation-degrees 30          # Max rotation angle
+
+# Training hyperparameters
+--epochs 80                    # Number of epochs
+--batch-size 32                # Batch size
+--lr 3e-4                      # Learning rate
+--weight-decay 0.05            # Weight decay
+
+# Output
+--weights-dir weights          # Directory to save models
+```
+
+### Backward Compatibility
+
+Old scripts still work but are deprecated:
+
+```bash
+# These still work but will be removed in future versions
+python ml/train_decoder.py
+python ml/train_fusion.py
+python ml/train_translator.py
+python ml/train_mae.py
+```
+
+## Configuration
+
+Configuration is managed through dataclasses in `config.py`:
+
+- `TrainingConfig`: Base config for JEPA/LeWM
+- `DecoderConfig`: Config for decoder training
+- `FusionConfig`: Config for fusion model training
+- `TranslatorConfig`: Config for translator training
+- `MAEConfig`: Config for MAE training
+
+## Data Pipeline
+
+The `data.py` module provides:
+
+- `FishDataset`: Multi-modal dataset (visual + acoustic)
+- `ImageLatentDataset`: Image-only dataset for decoder
+- `create_visual_transform`: Factory for visual transforms
+- `create_data_loaders`: Factory for data loaders with stratified splitting
+- `AugmentationConfig`: Configuration for augmentation
+
+### Augmentation
+
+Augmentation is **disabled by default**. Enable with `--with-aug`:
+
+**Visual Augmentation:**
+- Horizontal flip (p=0.5)
+- Vertical flip (p=0.3)
+- Random rotation
+- Color jitter
+
+**Acoustic Augmentation:**
+- Temporal jitter
+- Spatial flip
+- Channel gain variation
+- Speckle noise
+- Ping dropping
+- Temporal masking
+- Depth-dependent noise
+- Random occlusion
+- Direction-aware mixing
+
+## Model Architecture
+
+### JEPA (Joint Embedding Predictive Architecture)
+
+Multi-modal contrastive learning with acoustic and visual encoders.
+
+```python
+from models import CrossModalJEPA, TransformerEncoder
+
+ac_encoder = TransformerEncoder(embed_dim=256)
+model = CrossModalJEPA(ac_encoder=ac_encoder, embed_dim=256)
+```
+
+### LeWM (LeWorldModel)
+
+End-to-end JEPA with Gaussian regularization for stable latent space.
+
+```python
+from models import LeWorldModel
+
+model = LeWorldModel(
+    embed_dim=256,
+    num_layers=8,
+    num_heads=8,
+    mlp_ratio=4.0,
+)
+```
+
+### Fusion Model
+
+Masked attention fusion with modality dropout for robustness.
+
+```python
+from models import MaskedAttentionFusion
+
+model = MaskedAttentionFusion(d_model=256, nhead=8, num_classes=4)
+```
+
+### Translator
+
+Acoustic-to-image translation using transformers.
+
+```python
+from models import AcousticToImageTransformer
+
+model = AcousticToImageTransformer(d_model=256, patch_size=16)
+```
+
+### MAE (Masked Autoencoder)
+
+Self-supervised pre-training with masked reconstruction.
+
+```python
+from models import AcousticMAE
+
+model = AcousticMAE(mask_ratio=0.75)
+```
+
+## Extending
+
+### Adding a New Model
+
+1. Create model in `models/` directory
+2. Create trainer in `trainers.py` or `trainers_advanced.py`
+3. Add command to `train.py`
+4. Update `models/__init__.py`
+
+Example trainer:
+
+```python
+class MyModelTrainer(BaseTrainer):
+    def build_model(self) -> nn.Module:
+        from models import MyModel
+        return MyModel(...)
+    
+    def train_epoch(self, loader) -> Dict[str, float]:
+        # Training logic
+        return {"loss": ..., "acc": ...}
+    
+    def validate(self, loader) -> Dict[str, float]:
+        # Validation logic
+        return {"loss": ..., "acc": ...}
+```
+
+### Adding New Configuration
+
+```python
+@dataclass
+class MyModelConfig:
+    epochs: int = 100
+    batch_size: int = 32
+    learning_rate: float = 1e-4
+    # ... other hyperparameters
+```
+
+## Testing
+
+```bash
+# Verify syntax
+python3 -m py_compile ml/train.py ml/config.py ml/data.py ml/trainers.py
+
+# Run training (small test)
+python ml/train.py jepa --model transformer --epochs 1 --batch-size 4
+```
+
+## Logging
+
+All training is logged to Weights & Biases:
+
+- Training/validation loss
+- Training/validation accuracy
+- Cosine similarity (for JEPA)
+- Per-class accuracy
+- Learning rate schedules
+- Generated images (for translator)
+
+## Requirements
+
+- PyTorch
+- torchvision
+- wandb
+- tqdm
+- numpy
+- PIL
+- python-dotenv
