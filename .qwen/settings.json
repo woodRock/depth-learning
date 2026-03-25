@@ -28,7 +28,8 @@
       "Bash(do *)",
       "Bash(done)",
       "Bash(git reset *)",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(cargo build *)"
     ]
   },
   "$version": 3
