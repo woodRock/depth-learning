@@ -261,6 +261,7 @@ class WorldDecoder(nn.Module):
     def __init__(self, embed_dim=256, hidden_dim=512, image_size=224):
         super().__init__()
         self.embed_dim = embed_dim
+        self.hidden_dim = hidden_dim  # Store as attribute
         self.image_size = image_size
         
         # Calculate feature map size (after 4 conv transpose layers with stride 2)

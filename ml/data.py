@@ -242,7 +242,12 @@ def create_stratified_split(
     n_chunks: int = 10,
     train_ratio: float = 0.8,
 ) -> tuple:
-    """Create stratified train/val split with class balancing."""
+    """Create stratified train/val split that preserves class ratios.
+    
+    Unlike balanced sampling, this maintains the original class distribution
+    in both train and val sets. This is useful when you want to use all
+    available data without discarding samples.
+    """
     total_frames = len(dataset)
     
     # Group by class - use dataset's visual_files directly to get labels
@@ -261,36 +266,28 @@ def create_stratified_split(
     if not class_indices:
         raise ValueError("Not enough samples in any class (need >10 per class)")
     
-    # Balance classes
-    min_class_size = min(len(indices) for indices in class_indices.values())
-    max_class_size = max(len(indices) for indices in class_indices.values())
+    # Print class distribution for debugging
+    print(f"Dataset class distribution:")
+    for label, indices in sorted(class_indices.items()):
+        label_names = {0: "Kingfish", 1: "Snapper", 2: "Cod", 3: "Empty"}
+        print(f"  {label_names.get(label, 'Unknown')}: {len(indices)} samples ({len(indices)/total_frames*100:.1f}%)")
     
-    if max_class_size > min_class_size * 10:
-        target_per_class = max(min_class_size, max_class_size // 3)
-    else:
-        target_per_class = min_class_size
-    
+    # Stratified split: maintain same ratio in train/val for each class
     train_indices = []
     val_indices = []
     rng = np.random.RandomState(42)
     
     for class_label, indices in class_indices.items():
         rng.shuffle(indices)
-        balanced_indices = indices[:target_per_class]
-        chunk_size = len(balanced_indices) // n_chunks
         
-        for i in range(n_chunks):
-            start_idx = i * chunk_size
-            end_idx = len(balanced_indices) if i == n_chunks - 1 else start_idx + chunk_size
-            chunk = balanced_indices[start_idx:end_idx]
-            
-            split_point = int(len(chunk) * train_ratio)
-            train_indices.extend(chunk[:split_point])
-            val_indices.extend(chunk[split_point:])
+        # Split this class's samples into train/val
+        split_point = int(len(indices) * train_ratio)
+        train_indices.extend(indices[:split_point])
+        val_indices.extend(indices[split_point:])
     
-    # Subsample training for diversity
+    # Shuffle final indices
     rng.shuffle(train_indices)
-    train_indices = train_indices[::2]
+    rng.shuffle(val_indices)
     
     return train_indices, val_indices
 

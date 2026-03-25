@@ -91,7 +91,7 @@ async def load_model():
             model.load_state_dict(torch.load("weights/fusion_best.pth", map_location=device))
         print("Loaded Fusion Model.")
     elif model_type == "lewm":
-        # LeWorldModel: Acoustic-only, no visual encoder needed
+        # LeWorldModel: Acoustic-only, with world reconstruction decoder
         # Auto-detects architecture from saved weights
         model = LeWorldModel(
             embed_dim=256,
@@ -100,13 +100,15 @@ async def load_model():
             mlp_ratio=4.0,
             drop=0.1,
             n_classes=4,
-            use_classifier=True
+            use_classifier=True,
+            use_decoder=True  # Enable world reconstruction for visualization
         )
         if os.path.exists(weights_path):
             # Load with strict=False to handle minor architecture differences
             model.load_state_dict(torch.load(weights_path, map_location=device, weights_only=False), strict=False)
-            print("Loaded LeWorldModel (LeWM).")
+            print("Loaded LeWorldModel (LeWM) with World Decoder.")
             print("  Note: Using auto-detect for timestep size (32 or 64)")
+            print("  World reconstruction enabled for visualization")
         else:
             print("Warning: No LeWM weights found, using random initialization")
     else:
@@ -182,9 +184,15 @@ async def predict(file: UploadFile = File(...)):
             species_logits = model(vis_feats, ac_img, mask_ratio=0.0)
             gen_img_tensor = None
         elif model_type == "lewm":
-            # LeWorldModel: Acoustic-only, no visual needed
-            _, _, species_logits = model(history_flat)
-            gen_img_tensor = None  # LeWM doesn't do image reconstruction
+            # LeWorldModel: Acoustic-only with world reconstruction
+            _, _, species_logits, recon_img = model(history_flat)
+            
+            # Get reconstruction if decoder is enabled
+            if recon_img is not None:
+                # Reconstruction is already (B, 3, 224, 224), clamp and convert
+                gen_img_tensor = recon_img.cpu().clamp(0, 1)
+            else:
+                gen_img_tensor = None  # Decoder not enabled or no reconstruction
         else:
             # JEPA
             vis_latent, species_logits = model.forward_ac_to_vis_latent(history_flat)
