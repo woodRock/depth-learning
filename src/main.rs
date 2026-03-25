@@ -30,7 +30,7 @@ const TVG_GAIN: f32 = 0.15;  // Time-varied gain coefficient
 
 // Dynamic population control
 const POPULATION_CYCLE_PERIOD: f32 = 60.0; // Seconds for full cycle (reduced from 120s)
-const MIN_ACTIVE_RATIO: f32 = 0.0;  // Minimum % of schools active (reduced from 0.3)
+const MIN_ACTIVE_RATIO: f32 = 0.3;  // Minimum % of schools active (restored for visual variety)
 const MAX_ACTIVE_RATIO: f32 = 1.0;  // Maximum % of schools active
 
 // Balanced dataset recording
@@ -1008,72 +1008,93 @@ fn dataset_exporter_system(
     }
 
     if (exporter.is_exporting && inference.timer.just_finished()) || trigger_manual {
-        exporter.frame_count += 1;
-        let frame = exporter.frame_count;
-
-        // Create difficulty-specific export path
-        let difficulty_folder = match difficulty.current {
-            0 => "easy",
-            1 => "medium",
-            2 => "hard",
-            _ => "medium",
+        // BALANCED RECORDING: Only record frames where dominant species matches current cycle
+        // This ensures ~33% per species in the recorded dataset
+        let should_record = if BALANCED_RECORDING {
+            // Get current featured species from cycle
+            let cycle_phase = (time.elapsed_secs() % POPULATION_CYCLE_PERIOD) / POPULATION_CYCLE_PERIOD;
+            let featured_idx = (cycle_phase * 3.0) as usize % 3;
+            let featured_species = match featured_idx {
+                0 => "Kingfish",
+                1 => "Snapper",
+                _ => "Cod",
+            };
+            
+            // Only record if ground truth matches featured species
+            inference.ground_truth_dist.first()
+                .map(|(s, pct)| s == featured_species && *pct > 0.5)
+                .unwrap_or(false)
+        } else {
+            true  // Record all frames if balanced mode disabled
         };
-        let export_path = format!("{}/{}", exporter.export_path, difficulty_folder);
+        
+        if should_record {
+            exporter.frame_count += 1;
+            let frame = exporter.frame_count;
 
-        if !Path::new(&export_path).exists() {
-            let _ = std::fs::create_dir_all(&export_path);
-        }
+            // Create difficulty-specific export path
+            let difficulty_folder = match difficulty.current {
+                0 => "easy",
+                1 => "medium",
+                2 => "hard",
+                _ => "medium",
+            };
+            let export_path = format!("{}/{}", exporter.export_path, difficulty_folder);
 
-        let vis_path = format!("{}/frame_{:04}_visual.png", export_path, frame);
-        commands.spawn(Screenshot::image(ui_state.bird_eye_texture.clone())).observe(save_to_disk(vis_path));
-
-        let ac_img = images.get(&ui_state.echogram_texture).and_then(|img| {
-            img.clone().try_into_dynamic().ok().map(|d| d.to_rgba8())
-        });
-
-        let mut full_history = Vec::new();
-        for ping in &exporter.ping_history {
-            full_history.extend_from_slice(ping);
-        }
-        while full_history.len() < 64 * ECHOGRAM_HEIGHT as usize * 3 {
-            full_history.push(0);
-        }
-
-        let top_species = inference.ground_truth_dist.first().map(|(s, _)| s.clone());
-
-        // Track statistics
-        if let Some(species) = &top_species {
-            *stats.samples_per_species.entry(species.clone()).or_insert(0) += 1;
-        }
-
-        // Print periodic updates (every 10 seconds)
-        stats.last_print_time += time.delta_secs();
-        if stats.last_print_time > 10.0 {
-            info!("📊 Recording progress ({} frames):", exporter.frame_count);
-            for (species, count) in &stats.samples_per_species {
-                let pct = *count as f32 / exporter.frame_count as f32 * 100.0;
-                info!("   {}: {} frames ({:.1}%)", species, count, pct);
+            if !Path::new(&export_path).exists() {
+                let _ = std::fs::create_dir_all(&export_path);
             }
-            stats.last_print_time = 0.0;
-        }
 
-        thread::spawn(move || {
-            if let Some(data) = ac_img {
-                let path = format!("{}/frame_{:04}_acoustic.png", export_path, frame);
-                let _ = data.save(path);
-            }
-            if !full_history.is_empty() {
-                let path = format!("{}/frame_{:04}_history.bin", export_path, frame);
-                let _ = std::fs::write(path, full_history);
-            }
-            if let Some(species) = top_species {
-                let path = format!("{}/frame_{:04}_meta.json", export_path, frame);
-                let meta = format!(r#"{{"dominant_species": "{}"}}"#, species);
-                let _ = std::fs::write(path, meta);
-            }
-        });
+            let vis_path = format!("{}/frame_{:04}_visual.png", export_path, frame);
+            commands.spawn(Screenshot::image(ui_state.bird_eye_texture.clone())).observe(save_to_disk(vis_path));
 
-        info!("Queued export for frame {} to '{}' (Acoustic + History)", frame, difficulty_folder);
+            let ac_img = images.get(&ui_state.echogram_texture).and_then(|img| {
+                img.clone().try_into_dynamic().ok().map(|d| d.to_rgba8())
+            });
+
+            let mut full_history = Vec::new();
+            for ping in &exporter.ping_history {
+                full_history.extend_from_slice(ping);
+            }
+            while full_history.len() < 64 * ECHOGRAM_HEIGHT as usize * 3 {
+                full_history.push(0);
+            }
+
+            let top_species = inference.ground_truth_dist.first().map(|(s, _)| s.clone());
+
+            // Track statistics
+            if let Some(species) = &top_species {
+                *stats.samples_per_species.entry(species.clone()).or_insert(0) += 1;
+            }
+
+            // Print periodic updates (every 10 seconds)
+            stats.last_print_time += time.delta_secs();
+            if stats.last_print_time > 10.0 {
+                info!("📊 Recording progress ({} frames):", exporter.frame_count);
+                for (species, count) in &stats.samples_per_species {
+                    info!("   {}: {} frames", species, count);
+                }
+                stats.last_print_time = 0.0;
+            }
+
+            thread::spawn(move || {
+                if let Some(data) = ac_img {
+                    let path = format!("{}/frame_{:04}_acoustic.png", export_path, frame);
+                    let _ = data.save(path);
+                }
+                if !full_history.is_empty() {
+                    let path = format!("{}/frame_{:04}_history.bin", export_path, frame);
+                    let _ = std::fs::write(path, full_history);
+                }
+                if let Some(species) = top_species {
+                    let path = format!("{}/frame_{:04}_meta.json", export_path, frame);
+                    let meta = format!(r#"{{"dominant_species": "{}"}}"#, species);
+                    let _ = std::fs::write(path, meta);
+                }
+            });
+
+            info!("Queued export for frame {} to '{}' (Acoustic + History)", frame, difficulty_folder);
+        }  // End should_record check
     }
 }
 
@@ -1455,7 +1476,7 @@ fn sync_cpu_buffer_system(
 }
 
 /// Update which schools are active based on time-varying population dynamics
-/// Modified for balanced dataset: non-overlapping species activity cycles
+/// Modified: All fish visible, but recording cycles through species for balanced dataset
 fn update_population_system(
     time: Res<Time>,
     mut population: ResMut<DynamicPopulation>,
@@ -1470,28 +1491,21 @@ fn update_population_system(
     // Calculate phase in cycle (0 to 1)
     let cycle_phase = population.cycle_timer / POPULATION_CYCLE_PERIOD;
 
-    // BALANCED MODE: Non-overlapping activity cycles
-    // Each species gets 1/3 of the cycle exclusively
-    if BALANCED_RECORDING {
-        // Each species is active for 1/3 of the 60-second cycle (20 seconds each)
-        // Species 0 (Kingfish):  0-20s  (cycle_phase 0.00-0.33)
-        // Species 1 (Snapper):   20-40s (cycle_phase 0.33-0.67)
-        // Species 2 (Cod):       40-60s (cycle_phase 0.67-1.00)
-        for i in 0..3 {
-            let start_phase = i as f32 / 3.0;
-            let end_phase = (i + 1) as f32 / 3.0;
-            
-            // Species is active when cycle_phase is in its window
-            let in_window = cycle_phase >= start_phase && cycle_phase < end_phase;
-            population.species_activity[i] = if in_window { 1.0 } else { 0.0 };
-        }
-    } else {
-        // Original mode: overlapping sine waves
-        for i in 0..3 {
-            let phase_offset = (i as f32) / 3.0;
-            let activity = 0.5 + 0.5 * ((cycle_phase + phase_offset) * std::f32::consts::PI * 2.0).sin();
-            population.species_activity[i] = activity.clamp(MIN_ACTIVE_RATIO, MAX_ACTIVE_RATIO);
-        }
+    // Determine which species is "featured" for balanced recording
+    // This doesn't affect visibility, just which frames we record
+    // Species 0 (Kingfish):  0-20s  (cycle_phase 0.00-0.33)
+    // Species 1 (Snapper):   20-40s (cycle_phase 0.33-0.67)
+    // Species 2 (Cod):       40-60s (cycle_phase 0.67-1.00)
+    let featured_species_idx = (cycle_phase * 3.0) as usize % 3;
+    population.species_activity = [0.0, 0.0, 0.0];
+    population.species_activity[featured_species_idx] = 1.0;
+
+    // Original overlapping sine waves for VISIBILITY (all fish visible most of time)
+    for i in 0..3 {
+        let phase_offset = (i as f32) / 3.0;
+        let activity = 0.5 + 0.5 * ((cycle_phase + phase_offset) * std::f32::consts::PI * 2.0).sin();
+        // Keep minimum 30% activity so fish are usually visible
+        population.species_activity[i] = activity.clamp(MIN_ACTIVE_RATIO, MAX_ACTIVE_RATIO);
     }
 
     // Determine which schools should be active based on species activity
@@ -1500,15 +1514,10 @@ fn update_population_system(
         let species_idx = school_idx % 3;
         let activity = species_activity_copy[species_idx];
 
-        // In balanced mode, activity is binary (0 or 1)
-        // In original mode, add randomness
-        if BALANCED_RECORDING {
-            *active = activity > 0.5;
-        } else {
-            let random_factor = (school_idx as f32 * 0.7 + cycle_phase * 10.0).sin() * 0.5 + 0.5;
-            let effective_activity = activity * 0.7 + random_factor * 0.3;
-            *active = effective_activity > 0.5;
-        }
+        // Add randomness for natural variation
+        let random_factor = (school_idx as f32 * 0.7 + cycle_phase * 10.0).sin() * 0.5 + 0.5;
+        let effective_activity = activity * 0.7 + random_factor * 0.3;
+        *active = effective_activity > 0.5;
     }
 
     // Update fish visibility based on school activity
