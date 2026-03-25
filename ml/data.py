@@ -96,30 +96,36 @@ class FishDataset(Dataset):
         return valid_samples
     
     def _balance_classes(self) -> List[Path]:
-        """Balance classes by downsampling majority class (Empty)."""
-        fish_samples = []
-        empty_samples = []
+        """Balance classes by downsampling to the size of the smallest class."""
+        class_samples: Dict[int, List[Path]] = {0: [], 1: [], 2: [], 3: []}
         
         for v_path in self.visual_files:
             m_path = v_path.with_name(v_path.name.replace("_visual.png", "_meta.json"))
             with open(m_path, "r") as f:
-                if json.load(f)["dominant_species"] == "Empty":
-                    empty_samples.append(v_path)
-                else:
-                    fish_samples.append(v_path)
+                meta = json.load(f)
+                label = self.SPECIES_MAP.get(meta["dominant_species"], 3)
+                class_samples[label].append(v_path)
         
-        # Use deterministic RNG for balancing
+        # Find the size of the smallest non-empty class
+        counts = {label: len(samples) for label, samples in class_samples.items() if len(samples) > 0}
+        if not counts:
+            return self.visual_files
+            
+        min_samples = min(counts.values())
+        
+        print(f"Balancing dataset to {min_samples} samples per class.")
+        
+        # Deterministic RNG for balancing
         rng = np.random.RandomState(self.seed)
-        rng.shuffle(empty_samples)
         
-        # Avoid downsampling if Empty is already the minority
-        if len(empty_samples) > len(fish_samples) and len(fish_samples) > 0:
-            num_to_keep = len(fish_samples)
-            print(f"Balanced Dataset: {len(fish_samples)} Fish frames, {num_to_keep} Empty frames.")
-            return fish_samples + empty_samples[:num_to_keep]
-        else:
-            print(f"Dataset already balanced or Empty is minority: {len(fish_samples)} Fish, {len(empty_samples)} Empty.")
-            return fish_samples + empty_samples
+        balanced_files = []
+        for label, samples in class_samples.items():
+            if not samples: continue
+            rng.shuffle(samples)
+            balanced_files.extend(samples[:min_samples])
+            print(f"  Class {label} ({next(k for k, v in self.SPECIES_MAP.items() if v == label)}): {min_samples} samples")
+            
+        return balanced_files
 
     def __len__(self) -> int:
         return len(self.visual_files)

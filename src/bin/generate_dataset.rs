@@ -149,8 +149,8 @@ impl HeadlessSim {
         for school_idx in 0..school_count {
             // Determine species for this school
             let species = if dominant_species == Species::Empty {
-                // If dominant is Empty, 95% chance school is empty
-                if rng.gen_bool(0.05) { *species_list.choose(&mut rng).unwrap() } else { Species::Empty }
+                // Truly empty: no fish spawned for Empty dominant species
+                Species::Empty
             } else {
                 // 75% chance school is the dominant species
                 if rng.gen_bool(0.75) { dominant_species } else { *species_list.choose(&mut rng).unwrap() }
@@ -164,12 +164,12 @@ impl HeadlessSim {
             let base_heading = match difficulty {
                 Difficulty::Easy => {
                     // Easy: Mostly East, with small random offset (+/- 15 degrees)
-                    let angle = rng.gen_range(-15.0..15.0).to_radians();
+                    let angle = rng.gen_range(-15.0..15.0f32).to_radians();
                     Vec3::new(angle.cos(), 0.0, angle.sin())
                 },
                 Difficulty::Medium | Difficulty::Hard => {
                     // Medium/Hard: Completely random horizontal direction
-                    let angle = rng.gen_range(0.0..360.0).to_radians();
+                    let angle = rng.gen_range(0.0..360.0f32).to_radians();
                     Vec3::new(angle.cos(), 0.0, angle.sin())
                 }
             };
@@ -247,7 +247,7 @@ impl HeadlessSim {
             // Hard difficulty: Periodically change school heading
             if self.difficulty == Difficulty::Hard && t > 0.0 && (t % 30.0) < dt {
                 let mut rng = thread_rng();
-                let angle = rng.gen_range(-20.0..20.0).to_radians();
+                let angle = rng.gen_range(-20.0..20.0f32).to_radians();
                 let cos_a = angle.cos();
                 let sin_a = angle.sin();
                 let old_x = boid.base_heading.x;
