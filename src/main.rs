@@ -1473,15 +1473,16 @@ fn update_population_system(
     // BALANCED MODE: Non-overlapping activity cycles
     // Each species gets 1/3 of the cycle exclusively
     if BALANCED_RECORDING {
-        let species_phase = cycle_phase * 3.0;  // 3 species, each gets 1/3 of cycle
-        
+        // Each species is active for 1/3 of the 60-second cycle (20 seconds each)
+        // Species 0 (Kingfish):  0-20s  (cycle_phase 0.00-0.33)
+        // Species 1 (Snapper):   20-40s (cycle_phase 0.33-0.67)
+        // Species 2 (Cod):       40-60s (cycle_phase 0.67-1.00)
         for i in 0..3 {
-            // Each species is fully active for 1/3 of the cycle, inactive for 2/3
             let start_phase = i as f32 / 3.0;
             let end_phase = (i + 1) as f32 / 3.0;
             
             // Species is active when cycle_phase is in its window
-            let in_window = species_phase >= start_phase && species_phase < end_phase;
+            let in_window = cycle_phase >= start_phase && cycle_phase < end_phase;
             population.species_activity[i] = if in_window { 1.0 } else { 0.0 };
         }
     } else {
