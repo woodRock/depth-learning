@@ -250,16 +250,81 @@ class ARPredictor(nn.Module):
         return x
 
 
+class WorldDecoder(nn.Module):
+    """
+    Decodes latent embeddings back to visual representation.
+    Reconstructs what the model "sees" from acoustic input.
+    
+    Input: (B, embed_dim) - mean pooled embedding
+    Output: (B, 3, 224, 224) - reconstructed RGB image
+    """
+    def __init__(self, embed_dim=256, hidden_dim=512, image_size=224):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.image_size = image_size
+        
+        # Calculate feature map size (after 4 conv transpose layers with stride 2)
+        # 224 / (2^4) = 14
+        self.feature_size = image_size // 16
+        
+        # Project from embed_dim to feature volume
+        self.initial_proj = nn.Sequential(
+            nn.Linear(embed_dim, hidden_dim * 4),
+            nn.SiLU(),
+            nn.Linear(hidden_dim * 4, hidden_dim * self.feature_size * self.feature_size),
+        )
+        
+        # Transposed convolutions to upsample to full resolution
+        self.decoder = nn.Sequential(
+            # (B, hidden_dim, 14, 14)
+            nn.ConvTranspose2d(hidden_dim, hidden_dim // 2, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(hidden_dim // 2),
+            nn.SiLU(),
+            
+            # (B, hidden_dim//2, 28, 28)
+            nn.ConvTranspose2d(hidden_dim // 2, hidden_dim // 4, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(hidden_dim // 4),
+            nn.SiLU(),
+            
+            # (B, hidden_dim//4, 56, 56)
+            nn.ConvTranspose2d(hidden_dim // 4, hidden_dim // 8, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(hidden_dim // 8),
+            nn.SiLU(),
+            
+            # (B, hidden_dim//8, 112, 112)
+            nn.ConvTranspose2d(hidden_dim // 8, 3, kernel_size=4, stride=2, padding=1),
+            nn.Sigmoid(),  # Output in [0, 1]
+        )
+        
+    def forward(self, x):
+        """
+        Args:
+            x: (B, embed_dim) latent embedding (mean pooled from sequence)
+            
+        Returns:
+            recon: (B, 3, H, W) reconstructed image
+        """
+        # Project to feature volume
+        features = self.initial_proj(x)  # (B, hidden_dim * feature_size^2)
+        features = features.view(-1, self.hidden_dim, self.feature_size, self.feature_size)
+        
+        # Upsample to full resolution
+        recon = self.decoder(features)  # (B, 3, H, W)
+        
+        return recon
+
+
 class LeWorldModel(nn.Module):
     """
     LeWorldModel (LeWM): Stable End-to-End JEPA from pixels.
-    
+
     Auto-detects input size (32 or 64 timesteps) from data.
-    
+
     Key features:
     - Only 2 loss terms: prediction MSE + Gaussian regularizer
     - Stable training without EMA, pretrained encoders, or auxiliary losses
     - Compact latent space with enforced Gaussian distribution
+    - Optional world decoder for visual reconstruction
     """
     def __init__(
         self,
@@ -272,19 +337,21 @@ class LeWorldModel(nn.Module):
         drop=0.1,               # Dropout rate
         n_classes=4,            # Number of classification classes
         use_classifier=True,    # Whether to include classification head
+        use_decoder=False,      # Whether to include world reconstruction decoder
     ):
         super().__init__()
-        
+
         self.embed_dim = embed_dim
         self.use_classifier = use_classifier
-        
+        self.use_decoder = use_decoder
+
         # 1. Embedder (encodes input to latent space, auto-detects timesteps)
         self.embedder = Embedder(
             input_dim=input_dim,
             embed_dim=embed_dim,
             n_timesteps=n_timesteps
         )
-        
+
         # 2. Predictor (autoregressive transformer)
         self.predictor = ARPredictor(
             embed_dim=embed_dim,
@@ -293,13 +360,13 @@ class LeWorldModel(nn.Module):
             mlp_ratio=mlp_ratio,
             drop=drop
         )
-        
+
         # 3. Prediction projection
         self.pred_proj = nn.Linear(embed_dim, embed_dim)
-        
+
         # 4. Gaussian regularizer
         self.sigreg = SIGReg(embed_dim=embed_dim, n_projections=10, sigma=1.0)
-        
+
         # 5. Classification head (optional, for your fish classification task)
         if use_classifier:
             self.classifier = nn.Sequential(
@@ -312,6 +379,10 @@ class LeWorldModel(nn.Module):
                 nn.Linear(256, n_classes)
             )
         
+        # 6. World Decoder (optional, for visual reconstruction)
+        if use_decoder:
+            self.decoder = WorldDecoder(embed_dim=embed_dim)
+
         # Initialize weights
         self._init_weights()
         
@@ -354,27 +425,28 @@ class LeWorldModel(nn.Module):
     def forward(self, x, condition=None):
         """
         Forward pass: encode and predict.
-        
+
         Args:
             x: (B, input_dim) input tensor (flattened echogram history)
             condition: (B, embed_dim) conditioning vector (optional)
-            
+
         Returns:
             pred_emb: (B, T, embed_dim) predicted embeddings
             goal_emb: (B, T, embed_dim) target embeddings (last timestep)
             species_logits: (B, n_classes) classification logits (if use_classifier)
+            recon_img: (B, 3, H, W) reconstructed image (if use_decoder)
         """
         # Encode input
         embeddings = self.embedder(x)  # (B, T, embed_dim)
-        
+
         # Predict future embeddings
         pred_emb = self.predict(embeddings, condition)  # (B, T, embed_dim)
         pred_emb = self.pred_proj(pred_emb)
-        
+
         # Goal embeddings (shifted by 1 timestep for prediction)
         goal_emb = embeddings[:, 1:, :]  # (B, T-1, embed_dim)
         pred_emb = pred_emb[:, :-1, :]   # (B, T-1, embed_dim)
-        
+
         # Classification
         if self.use_classifier:
             # Use mean embedding for classification
@@ -382,22 +454,33 @@ class LeWorldModel(nn.Module):
             species_logits = self.classifier(mean_emb)
         else:
             species_logits = None
-        
-        return pred_emb, goal_emb, species_logits
+
+        # World reconstruction
+        if self.use_decoder:
+            # Use mean embedding for reconstruction
+            mean_emb = embeddings.mean(dim=1)  # (B, embed_dim)
+            recon_img = self.decoder(mean_emb)  # (B, 3, H, W)
+        else:
+            recon_img = None
+
+        return pred_emb, goal_emb, species_logits, recon_img
     
-    def compute_loss(self, pred_emb, goal_emb, species_logits, labels, sigreg_weight=0.1):
+    def compute_loss(self, pred_emb, goal_emb, species_logits, labels, recon_img=None, target_img=None, sigreg_weight=0.1, recon_weight=0.01):
         """
-        Compute LeWM loss: prediction MSE + Gaussian regularizer + classification.
-        
+        Compute LeWM loss: prediction MSE + Gaussian regularizer + classification + reconstruction.
+
         Args:
             pred_emb: (B, T, embed_dim) predicted embeddings
             goal_emb: (B, T, embed_dim) target embeddings
             species_logits: (B, n_classes) classification logits
             labels: (B,) ground truth labels
+            recon_img: (B, 3, H, W) reconstructed image (optional)
+            target_img: (B, 3, H, W) target visual image (optional)
             sigreg_weight: weight for SIGReg regularizer
-            
+            recon_weight: weight for reconstruction loss
+
         Returns:
-            total_loss, pred_loss, sigreg_loss, cls_loss
+            total_loss, pred_loss, sigreg_loss, cls_loss, recon_loss
         """
         # 1. Prediction loss (MSE on last timestep)
         pred_loss = F.mse_loss(
@@ -405,20 +488,28 @@ class LeWorldModel(nn.Module):
             goal_emb[..., -1:, :].detach(),
             reduction="mean"
         )
-        
+
         # 2. Gaussian regularizer
         sigreg_loss = self.sigreg(pred_emb)
-        
+
         # 3. Classification loss (cross-entropy)
         if species_logits is not None and labels is not None:
             cls_loss = F.cross_entropy(species_logits, labels)
         else:
             cls_loss = torch.tensor(0.0, device=pred_emb.device)
-        
+
+        # 4. Reconstruction loss (MSE + L1 for sharpness)
+        if recon_img is not None and target_img is not None:
+            recon_mse = F.mse_loss(recon_img, target_img)
+            recon_l1 = F.l1_loss(recon_img, target_img)
+            recon_loss = recon_mse + 0.1 * recon_l1
+        else:
+            recon_loss = torch.tensor(0.0, device=pred_emb.device)
+
         # Total loss
-        total_loss = pred_loss + sigreg_weight * sigreg_loss + cls_loss
-        
-        return total_loss, pred_loss, sigreg_loss, cls_loss
+        total_loss = pred_loss + sigreg_weight * sigreg_loss + cls_loss + recon_weight * recon_loss
+
+        return total_loss, pred_loss, sigreg_loss, cls_loss, recon_loss
     
     def rollout(self, x, n_steps=10, condition=None):
         """
