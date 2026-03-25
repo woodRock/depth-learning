@@ -29,9 +29,13 @@ const PULSE_LENGTH_M: f32 = 0.5;  // Pulse length in meters
 const TVG_GAIN: f32 = 0.15;  // Time-varied gain coefficient
 
 // Dynamic population control
-const POPULATION_CYCLE_PERIOD: f32 = 120.0; // Seconds for full cycle
-const MIN_ACTIVE_RATIO: f32 = 0.3;  // Minimum % of schools active
+const POPULATION_CYCLE_PERIOD: f32 = 60.0; // Seconds for full cycle (reduced from 120s)
+const MIN_ACTIVE_RATIO: f32 = 0.0;  // Minimum % of schools active (reduced from 0.3)
 const MAX_ACTIVE_RATIO: f32 = 1.0;  // Maximum % of schools active
+
+// Balanced dataset recording
+const BALANCED_RECORDING: bool = true;  // Enable balanced class recording
+const TARGET_PER_SPECIES: usize = 500;  // Target frames per species
 
 // Difficulty modes
 #[derive(Resource, Default)]
@@ -316,6 +320,7 @@ fn main() {
         .init_resource::<InferenceResult>()
         .init_resource::<DynamicPopulation>()
         .init_resource::<EmptyFrameGenerator>()  // For generating empty frames
+        .init_resource::<RecordingStats>()  // Track recording statistics
         .insert_resource(DifficultyMode::new())  // Add difficulty mode resource
         .add_systems(
             Startup,
@@ -887,6 +892,13 @@ impl Default for EmptyFrameGenerator {
     }
 }
 
+/// Track recorded samples per species for balanced dataset
+#[derive(Resource, Default)]
+struct RecordingStats {
+    samples_per_species: std::collections::HashMap<String, usize>,
+    last_print_time: f32,
+}
+
 fn dataset_exporter_system(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
@@ -895,14 +907,24 @@ fn dataset_exporter_system(
     images: Res<Assets<Image>>,
     inference: Res<InferenceResult>,
     difficulty: Res<DifficultyMode>,
+    mut stats: ResMut<RecordingStats>,
+    time: Res<Time>,
     _bird_eye_camera: Query<Entity, With<BirdEyeCamera>>,
 ) {
     if keys.just_pressed(KeyCode::KeyR) {
         exporter.is_exporting = !exporter.is_exporting;
         if exporter.is_exporting {
-            info!("Recording Started... (Difficulty: {})", difficulty.name());
+            // Reset stats when starting new recording
+            stats.samples_per_species.clear();
+            info!("🎬 Recording Started... (Difficulty: {})", difficulty.name());
+            info!("📊 Balanced recording enabled: {}", BALANCED_RECORDING);
         } else {
-            info!("Recording Stopped. Total frames: {}", exporter.frame_count);
+            info!("⏹️  Recording Stopped. Total frames: {}", exporter.frame_count);
+            // Print final statistics
+            info!("📊 Final class distribution:");
+            for (species, count) in &stats.samples_per_species {
+                info!("   {}: {} frames", species, count);
+            }
         }
     }
 
@@ -920,7 +942,7 @@ fn dataset_exporter_system(
             latest_ping_rgb.push(img.data[i + 2]);
         }
         exporter.ping_history.push_back(latest_ping_rgb);
-        if exporter.ping_history.len() > 64 {  // Keep 64 pings for longer context
+        if exporter.ping_history.len() > 64 {
             exporter.ping_history.pop_front();
         }
     }
@@ -928,7 +950,7 @@ fn dataset_exporter_system(
     if (exporter.is_exporting && inference.timer.just_finished()) || trigger_manual {
         exporter.frame_count += 1;
         let frame = exporter.frame_count;
-        
+
         // Create difficulty-specific export path
         let difficulty_folder = match difficulty.current {
             0 => "easy",
@@ -953,12 +975,27 @@ fn dataset_exporter_system(
         for ping in &exporter.ping_history {
             full_history.extend_from_slice(ping);
         }
-        // Extend to 64 pings if needed for longer context models
         while full_history.len() < 64 * ECHOGRAM_HEIGHT as usize * 3 {
             full_history.push(0);
         }
 
         let top_species = inference.ground_truth_dist.first().map(|(s, _)| s.clone());
+
+        // Track statistics
+        if let Some(species) = &top_species {
+            *stats.samples_per_species.entry(species.clone()).or_insert(0) += 1;
+        }
+
+        // Print periodic updates (every 10 seconds)
+        stats.last_print_time += time.delta_secs();
+        if stats.last_print_time > 10.0 {
+            info!("📊 Recording progress ({} frames):", exporter.frame_count);
+            for (species, count) in &stats.samples_per_species {
+                let pct = *count as f32 / exporter.frame_count as f32 * 100.0;
+                info!("   {}: {} frames ({:.1}%)", species, count, pct);
+            }
+            stats.last_print_time = 0.0;
+        }
 
         thread::spawn(move || {
             if let Some(data) = ac_img {
@@ -1358,6 +1395,7 @@ fn sync_cpu_buffer_system(
 }
 
 /// Update which schools are active based on time-varying population dynamics
+/// Modified for balanced dataset: non-overlapping species activity cycles
 fn update_population_system(
     time: Res<Time>,
     mut population: ResMut<DynamicPopulation>,
@@ -1368,40 +1406,56 @@ fn update_population_system(
     if population.cycle_timer > POPULATION_CYCLE_PERIOD {
         population.cycle_timer -= POPULATION_CYCLE_PERIOD;
     }
-    
+
     // Calculate phase in cycle (0 to 1)
     let cycle_phase = population.cycle_timer / POPULATION_CYCLE_PERIOD;
-    
-    // Generate species activity levels using sine waves with different phases
-    // This creates a rotating dominance pattern
-    for i in 0..3 {
-        // Each species has a different phase offset (0, 1/3, 2/3 of cycle)
-        let phase_offset = (i as f32) / 3.0;
-        let activity = 0.5 + 0.5 * ((cycle_phase + phase_offset) * std::f32::consts::PI * 2.0).sin();
-        population.species_activity[i] = activity.clamp(MIN_ACTIVE_RATIO, MAX_ACTIVE_RATIO);
+
+    // BALANCED MODE: Non-overlapping activity cycles
+    // Each species gets 1/3 of the cycle exclusively
+    if BALANCED_RECORDING {
+        let species_phase = cycle_phase * 3.0;  // 3 species, each gets 1/3 of cycle
+        
+        for i in 0..3 {
+            // Each species is fully active for 1/3 of the cycle, inactive for 2/3
+            let start_phase = i as f32 / 3.0;
+            let end_phase = (i + 1) as f32 / 3.0;
+            
+            // Species is active when cycle_phase is in its window
+            let in_window = species_phase >= start_phase && species_phase < end_phase;
+            population.species_activity[i] = if in_window { 1.0 } else { 0.0 };
+        }
+    } else {
+        // Original mode: overlapping sine waves
+        for i in 0..3 {
+            let phase_offset = (i as f32) / 3.0;
+            let activity = 0.5 + 0.5 * ((cycle_phase + phase_offset) * std::f32::consts::PI * 2.0).sin();
+            population.species_activity[i] = activity.clamp(MIN_ACTIVE_RATIO, MAX_ACTIVE_RATIO);
+        }
     }
-    
+
     // Determine which schools should be active based on species activity
-    // Schools are assigned to species in round-robin fashion (species_list[i % 3])
-    let species_activity_copy = population.species_activity;  // Copy to avoid borrow conflict
+    let species_activity_copy = population.species_activity;
     for (school_idx, active) in population.active_schools.iter_mut().enumerate() {
-        let species_idx = school_idx % 3;  // 0=Kingfish, 1=Snapper, 2=Cod
+        let species_idx = school_idx % 3;
         let activity = species_activity_copy[species_idx];
-        
-        // Schools have a probability of being active based on species activity
-        // Add some randomness for natural variation
-        let random_factor = (school_idx as f32 * 0.7 + cycle_phase * 10.0).sin() * 0.5 + 0.5;
-        let effective_activity = activity * 0.7 + random_factor * 0.3;
-        
-        *active = effective_activity > 0.5;
+
+        // In balanced mode, activity is binary (0 or 1)
+        // In original mode, add randomness
+        if BALANCED_RECORDING {
+            *active = activity > 0.5;
+        } else {
+            let random_factor = (school_idx as f32 * 0.7 + cycle_phase * 10.0).sin() * 0.5 + 0.5;
+            let effective_activity = activity * 0.7 + random_factor * 0.3;
+            *active = effective_activity > 0.5;
+        }
     }
-    
+
     // Update fish visibility based on school activity
     for (mut visibility, boid) in fish_query.iter_mut() {
         let school_active = population.active_schools.get(boid.school_id as usize)
             .copied()
             .unwrap_or(true);
-        
+
         if school_active {
             *visibility = Visibility::Visible;
         } else {
