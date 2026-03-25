@@ -33,9 +33,10 @@ class MaskedAttentionFusion(nn.Module):
         
         # 1. Acoustic Patches
         if acoustic_data.dim() == 2:
-            # Flattened input: (B, 32*256*3) -> (B, 32, 256, 3) -> (B, 3, 32, 256)
+            # Flattened input: (B, 32*256*3) where order is ping->depth->channel
+            # Reshape to (B, 32, 256, 3) then permute to (B, 3, 32, 256)
             acoustic_data = acoustic_data.view(batch_size, 32, 256, 3).permute(0, 3, 1, 2)
-        elif acoustic_data.shape[1] != 3:
+        elif acoustic_data.dim() == 4 and acoustic_data.shape[1] == 32:
             # (B, 32, 256, 3) -> (B, 3, 32, 256)
             acoustic_data = acoustic_data.permute(0, 3, 1, 2)
         

@@ -1,0 +1,23 @@
+Bisection Search Results for sigreg_weight
+==================================================
+Dataset: easy
+Search range: [0.001, 1.0]
+Steps: 4
+Epochs per evaluation: 1
+
+Best sigreg_weight: 0.0010
+Best validation accuracy: 0.7264
+
+Full history:
+  Step 1: weight=0.0010, acc=0.7264
+  Step 1: weight=0.5005, acc=0.7264
+  Step 1: weight=1.0000, acc=0.7264
+  Step 2: weight=0.0010, acc=0.7264
+  Step 2: weight=0.2507, acc=0.7264
+  Step 2: weight=0.5005, acc=0.7264
+  Step 3: weight=0.0010, acc=0.7264
+  Step 3: weight=0.1259, acc=0.7264
+  Step 3: weight=0.2507, acc=0.7264
+  Step 4: weight=0.0010, acc=0.7264
+  Step 4: weight=0.0634, acc=0.7264
+  Step 4: weight=0.1259, acc=0.7264

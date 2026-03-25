@@ -1,0 +1,157 @@
+import os
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
+from PIL import Image
+from glob import glob
+from tqdm import tqdm
+import wandb
+
+from models.jepa import CrossModalJEPA
+from models.acoustic import ConvEncoder, TransformerEncoder
+from models.decoder import LatentDecoder
+
+class ImageLatentDataset(Dataset):
+    def __init__(self, data_dir, transform=None):
+        all_visuals = sorted(glob(os.path.join(data_dir, "*_visual.png")))
+        self.visual_files = []
+        self.transform = transform
+        for v_path in all_visuals:
+            m_path = v_path.replace("_visual.png", "_meta.json")
+            if os.path.exists(m_path):
+                self.visual_files.append(v_path)
+
+    def __len__(self):
+        return len(self.visual_files)
+
+    def __getitem__(self, idx):
+        img = Image.open(self.visual_files[idx]).convert("RGB")
+        if self.transform:
+            img = self.transform(img)
+        return img
+
+def train_decoder():
+    parser = argparse.ArgumentParser(description="Train Image Decoder")
+    parser.add_argument("--dataset", type=str, default="easy", choices=["easy", "medium", "hard"],
+                        help="Dataset difficulty level (default: easy)")
+    parser.add_argument("--with-aug", action="store_true", default=False,
+                        help="Enable data augmentation (default: disabled)")
+    args = parser.parse_args()
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    print(f"--- Training Decoder on {device} ---")
+    print(f"--- Using dataset difficulty: {args.dataset} ---")
+    print(f"--- Data augmentation: {'enabled' if args.with_aug else 'disabled'} ---")
+
+    wandb.init(
+        project="depth-learning",
+        job_type="decoder-train",
+        config={
+            "dataset": f"Synthetic-Fish-Sim-V3-{args.dataset.capitalize()}",
+            "difficulty": args.dataset,
+            "augmentation": "enabled" if args.with_aug else "disabled"
+        }
+    )
+    
+    # Visual augmentation - configurable (only for loading data, no aug applied in decoder training)
+    transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    
+    # We need the pre-trained JEPA model to get the target latents
+    jepa_weights = "weights/fish_clip_model.pth"
+    config_path = "weights/model_config.json"
+    
+    if not os.path.exists(jepa_weights):
+        print(f"Error: JEPA weights not found at {jepa_weights}. Please train JEPA first.")
+        return
+
+    # Determine model type
+    import json
+    model_type = "conv"
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            cfg = json.load(f)
+            model_type = cfg.get("model_type", "conv")
+
+    print(f"Using {model_type.upper()} acoustic encoder for JEPA context.")
+    ac_encoder = ConvEncoder() if model_type == "conv" else TransformerEncoder()
+    
+    jepa = CrossModalJEPA(ac_encoder=ac_encoder).to(device)
+    
+    # Load weights with strict=False or informative error
+    try:
+        jepa.load_state_dict(torch.load(jepa_weights, map_location=device))
+    except RuntimeError as e:
+        print(f"\nFATAL ERROR: Weight mismatch. Your {jepa_weights} likely contains old CLIP weights.")
+        print("Please re-run JEPA training first: python3 ml/train.py --model transformer\n")
+        return
+        
+    jepa.eval()
+
+    decoder = LatentDecoder().to(device)
+    optimizer = torch.optim.Adam(decoder.parameters(), lr=1e-3)
+    criterion = nn.MSELoss()
+
+    dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", args.dataset))
+    dataloader = DataLoader(ImageLatentDataset(dataset_path, transform=transform), batch_size=16, shuffle=True)
+    
+    for epoch in range(50):
+        decoder.train()
+        total_loss = 0
+        pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/50")
+        
+        for img in pbar:
+            img = img.to(device)
+            
+            # 1. Get Spatial Visual Latent [B, 512, 7, 7]
+            with torch.no_grad():
+                target_latent = jepa.target_encoder(img)
+                target_latent = F.normalize(target_latent, p=2, dim=1)
+            
+            # 2. Reconstruct image from spatial latent
+            optimizer.zero_grad()
+            recon_img = decoder(target_latent)
+            
+            # Target for loss (denormalized to [0,1])
+            target_img = (img * 0.225 + 0.456).clamp(0, 1)
+            
+            # WEIGHTED LOSS:
+            # We want to penalize errors on fish more than background.
+            # Grid/Background is mostly dark blue. Fish are bright.
+            # Create a mask where pixels are "interesting"
+            with torch.no_grad():
+                # Pixels that are significantly different from the average background
+                mask = (target_img.mean(dim=1, keepdim=True) > 0.15).float()
+                # Give interesting pixels 10x more weight
+                weights = 1.0 + (mask * 9.0)
+            
+            # Weighted MSE
+            loss = (weights * (recon_img - target_img)**2).mean()
+            
+            # Add a small L1 term for sharpness
+            loss += 0.1 * F.l1_loss(recon_img, target_img)
+            
+            loss.backward()
+            optimizer.step()
+            
+            total_loss += loss.item()
+            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+            
+        avg_loss = total_loss / len(dataloader)
+        print(f"Epoch {epoch+1} Complete. Avg Loss: {avg_loss:.4f}")
+        
+        # Log a sample to wandb
+        if epoch % 5 == 0:
+            sample_recon = recon_img[0].cpu().detach().permute(1, 2, 0).numpy()
+            wandb.log({"reconstruction": wandb.Image(sample_recon)})
+
+    torch.save(decoder.state_dict(), "weights/decoder_model.pth")
+    print("Decoder saved to ml/weights/decoder_model.pth")
+
+if __name__ == "__main__":
+    train_decoder()

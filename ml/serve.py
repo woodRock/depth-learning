@@ -13,6 +13,7 @@ import base64
 from glob import glob
 
 # Import modular models
+from data import FishDataset
 from models.acoustic import ConvEncoder, TransformerEncoder
 from models.jepa import CrossModalJEPA
 from models.decoder import LatentDecoder
@@ -148,9 +149,13 @@ async def predict(file: UploadFile = File(...)):
     
     # Transpose to match training format: (32, 256, 3)
     history_32 = last_32_pings.transpose(1, 0, 2).astype(np.float32) / 255.0
+    
+    print(f"DEBUG: last_32_pings shape: {last_32_pings.shape}")
+    print(f"DEBUG: history_32 shape: {history_32.shape}")
 
     # Flatten to (1, 32 * 256 * 3) = (1, 24576)
     history_flat = torch.from_numpy(history_32.flatten()).unsqueeze(0).to(device)
+    print(f"DEBUG: history_flat shape: {history_flat.shape}")
     
     with torch.no_grad():
         if model_type == "translator":
@@ -216,8 +221,11 @@ async def predict(file: UploadFile = File(...)):
             prediction_history.pop(0)
         
         avg_probs = torch.stack(prediction_history).mean(dim=0)
+        print(f"DEBUG: raw avg_probs: {avg_probs.tolist()}")
         
-        species_names = ["Kingfish", "Snapper", "Cod", "Empty"]
+        # Use SPECIES_MAP for consistent ordering
+        # Sort by value to get [0, 1, 2, 3] order
+        species_names = [name for name, _ in sorted(FishDataset.SPECIES_MAP.items(), key=lambda x: x[1])]
         scores = []
         for i, name in enumerate(species_names):
             scores.append((name, avg_probs[i].item()))
