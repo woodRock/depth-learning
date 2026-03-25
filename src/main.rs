@@ -133,8 +133,8 @@ impl Default for InferenceResult {
 
 #[derive(Component, Debug, Clone, Copy, PartialEq)]
 enum Species {
-    Snapper,
     Kingfish,
+    Snapper,
     Cod,
     Empty, 
 }
@@ -1002,7 +1002,7 @@ fn dataset_exporter_system(
             latest_ping_rgb.push(img.data[i + 2]);
         }
         exporter.ping_history.push_back(latest_ping_rgb);
-        if exporter.ping_history.len() > 64 {
+        if exporter.ping_history.len() > 32 {
             exporter.ping_history.pop_front();
         }
     }
@@ -1056,7 +1056,7 @@ fn dataset_exporter_system(
             for ping in &exporter.ping_history {
                 full_history.extend_from_slice(ping);
             }
-            while full_history.len() < 64 * ECHOGRAM_HEIGHT as usize * 3 {
+            while full_history.len() < 32 * ECHOGRAM_HEIGHT as usize * 3 {
                 full_history.push(0);
             }
 

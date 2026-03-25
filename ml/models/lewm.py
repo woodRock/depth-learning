@@ -448,18 +448,17 @@ class LeWorldModel(nn.Module):
         goal_emb = embeddings[:, 1:, :]  # (B, T-1, embed_dim)
         pred_emb = pred_emb[:, :-1, :]   # (B, T-1, embed_dim)
 
+        # Use mean embedding for classification and reconstruction
+        mean_emb = embeddings.mean(dim=1)  # (B, embed_dim)
+
         # Classification
         if self.use_classifier:
-            # Use mean embedding for classification
-            mean_emb = embeddings.mean(dim=1)  # (B, embed_dim)
             species_logits = self.classifier(mean_emb)
         else:
             species_logits = None
 
         # World reconstruction
         if self.use_decoder:
-            # Use mean embedding for reconstruction
-            mean_emb = embeddings.mean(dim=1)  # (B, embed_dim)
             recon_img = self.decoder(mean_emb)  # (B, 3, H, W)
         else:
             recon_img = None
