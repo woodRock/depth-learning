@@ -106,7 +106,24 @@ struct Mesh {
 
 impl Mesh {
     fn load() -> Self {
-        let (gltf, buffers, _) = gltf::import("assets/models/fish.glb").expect("Failed to load fish model");
+        let path = "assets/models/fish.glb";
+        let mut model_path = std::path::PathBuf::from(path);
+        
+        // Try to find assets folder by looking up to 3 levels up (for target/release or dataset/ runs)
+        if !model_path.exists() {
+            for depth in 1..=3 {
+                let mut parent_path = std::path::PathBuf::from(".");
+                for _ in 0..depth { parent_path.push(".."); }
+                parent_path.push(path);
+                if parent_path.exists() {
+                    model_path = parent_path;
+                    break;
+                }
+            }
+        }
+
+        let (gltf, buffers, _) = gltf::import(&model_path)
+            .expect(&format!("Failed to load fish model at {:?}", model_path));
         let mut vertices = Vec::new();
 
         for mesh in gltf.meshes() {
@@ -134,6 +151,8 @@ struct HeadlessSim {
     boids: Vec<Boid>,
     fish_mesh: Mesh,
     difficulty: Difficulty,
+    species_in_beam: std::collections::HashSet<String>,
+    species_counts: std::collections::HashMap<String, u32>,
 }
 
 impl HeadlessSim {
@@ -203,7 +222,7 @@ impl HeadlessSim {
             }
         }
 
-        Self { boids, fish_mesh, difficulty }
+        Self { boids, fish_mesh, difficulty, species_in_beam: std::collections::HashSet::new(), species_counts: std::collections::HashMap::new() }
     }
 
     fn step(&mut self, dt: f32, t: f32) {
@@ -304,7 +323,7 @@ impl HeadlessSim {
 
     fn generate_ping(&mut self, t: f32) -> Vec<u8> {
         let mut ping = vec![0u8; ECHOGRAM_HEIGHT as usize * 3];
-        let mut noise_rng = thread_rng(); 
+        let mut noise_rng = thread_rng();
 
         for y in 0..ECHOGRAM_HEIGHT as usize {
             let depth_ratio = y as f32 / ECHOGRAM_HEIGHT as f32;
@@ -318,6 +337,10 @@ impl HeadlessSim {
         let transducer_pos = Vec3::new(0.0, 20.0, 0.0);
         let half_angle_rad = (TRANSDUCER_CONE_ANGLE / 2.0).to_radians();
         let side_lobe_angle = (TRANSDUCER_CONE_ANGLE * 1.5).to_radians();
+        
+        // Clear and track species in beam for multi-label metadata
+        self.species_in_beam.clear();
+        self.species_counts.clear();
 
         for b in &self.boids {
             let to_fish = b.pos - transducer_pos;
@@ -331,9 +354,13 @@ impl HeadlessSim {
                 } else {
                     (1.0 - (angle / side_lobe_angle)).powi(2) * 0.1
                 };
+                
+                // Track species in beam and count individuals
+                self.species_in_beam.insert(b.species.name().to_string());
+                *self.species_counts.entry(b.species.name().to_string()).or_insert(0) += 1;
 
                 let tilt_factor = 1.0 - direction.dot(b.velocity.normalize_or_zero()).abs();
-                
+
                 // EXACT DEPTH RATIO FROM main.rs
                 let depth_ratio = (distance / (TANK_SIZE.y * 3.0)).clamp(0.0, 1.0);
                 let y_center = (depth_ratio * (ECHOGRAM_HEIGHT as f32 - 1.0)) as i32;
@@ -343,7 +370,7 @@ impl HeadlessSim {
                     if y < 0 || y >= ECHOGRAM_HEIGHT as i32 { continue; }
                     let pulse_factor = 1.0 - (dy.abs() as f32 / 3.0);
                     let (ts_38, ts_120, ts_200) = b.species.target_strength();
-                    
+
                     let ts_var_38 = 0.7 + 0.3 * (t * 2.0 + b.ts_phase).sin();
                     let ts_var_120 = 0.8 + 0.2 * (t * 2.5 + b.ts_phase * 1.2).sin();
                     let ts_var_200 = 0.85 + 0.15 * (t * 3.0 + b.ts_phase * 1.4).sin();
@@ -366,58 +393,56 @@ impl HeadlessSim {
         let mut img = RgbImage::new(BIRD_EYE_WIDTH, BIRD_EYE_HEIGHT);
         for p in img.pixels_mut() { *p = Rgb([5, 10, 30]); }
 
+        // Render grid lines (matching main.rs)
+        let grid_color = Rgb([51, 51, 102]); // srgb(0.2, 0.2, 0.4)
+        for i in -5..=5 {
+            let x_val = i as f32 * 4.0;
+            let z_val = i as f32 * 4.0;
+            
+            // X-grid lines
+            let x_norm = (x_val / 5.0) + 0.5;
+            if x_norm >= 0.0 && x_norm < 1.0 {
+                let px = (x_norm * BIRD_EYE_WIDTH as f32) as u32;
+                for py in 0..BIRD_EYE_HEIGHT {
+                    img.put_pixel(px, py, grid_color);
+                }
+            }
+            // Z-grid lines
+            let z_norm = (z_val / 5.0) + 0.5;
+            if z_norm >= 0.0 && z_norm < 1.0 {
+                let py = (z_norm * BIRD_EYE_HEIGHT as f32) as u32;
+                for px in 0..BIRD_EYE_WIDTH {
+                    img.put_pixel(px, py, grid_color);
+                }
+            }
+        }
+
         for b in &self.boids {
             let color = b.species.color();
             let scale = b.species.scale();
             let velocity = b.velocity.normalize_or_zero();
             
-            // Rotation to align with velocity (GLB model usually faces -Z or +X)
-            // Adjust rotation if the model orientation in GLB is different.
             let angle = velocity.z.atan2(velocity.x);
             let rotation = Quat::from_rotation_y(-angle);
 
-            let mut min_px = Vec2::new(f32::MAX, f32::MAX);
-            let mut max_px = Vec2::new(f32::MIN, f32::MIN);
-            let mut projected_verts = Vec::with_capacity(self.fish_mesh.vertices.len());
-
             for &v in &self.fish_mesh.vertices {
-                // Scale, Rotate, and Translate the vertex
-                let world_v = b.pos + (rotation * (v * scale * 0.1));
+                let world_v = b.pos + (rotation * (v * scale));
                 
                 // Bird's-eye projection (X-Z plane)
                 let x_norm = (world_v.x / 5.0) + 0.5;
                 let z_norm = (world_v.z / 5.0) + 0.5;
                 
-                let px = x_norm * BIRD_EYE_WIDTH as f32;
-                let py = z_norm * BIRD_EYE_HEIGHT as f32;
+                let px = (x_norm * BIRD_EYE_WIDTH as f32) as i32;
+                let py = (z_norm * BIRD_EYE_HEIGHT as f32) as i32;
                 
-                projected_verts.push(Vec2::new(px, py));
-                min_px = min_px.min(Vec2::new(px, py));
-                max_px = max_px.max(Vec2::new(px, py));
-            }
-
-            // Rasterize the bounding box of the projected fish
-            let start_x = (min_px.x.floor() as i32).max(0);
-            let end_x = (max_px.x.ceil() as i32).min(BIRD_EYE_WIDTH as i32 - 1);
-            let start_y = (min_px.y.floor() as i32).max(0);
-            let end_y = (max_px.y.ceil() as i32).min(BIRD_EYE_HEIGHT as i32 - 1);
-
-            for px in start_x..=end_x {
-                for py in start_y..=end_y {
-                    let p = Vec2::new(px as f32, py as f32);
-                    
-                    // Silhouette approximation: point-in-hull or proximity check
-                    // For a dense mesh, proximity to any vertex is a good silhouette.
-                    let mut is_inside = false;
-                    for v in &projected_verts {
-                        if p.distance_squared(*v) < 1.5 {
-                            is_inside = true;
-                            break;
+                // Splat vertex onto image with a small 2x2 brush for thickness
+                for dx in 0..2 {
+                    for dy in 0..2 {
+                        let x = px + dx;
+                        let y = py + dy;
+                        if x >= 0 && x < BIRD_EYE_WIDTH as i32 && y >= 0 && y < BIRD_EYE_HEIGHT as i32 {
+                            img.put_pixel(x as u32, y as u32, Rgb(color));
                         }
-                    }
-
-                    if is_inside {
-                        img.put_pixel(px as u32, py as u32, Rgb(color));
                     }
                 }
             }
@@ -503,7 +528,38 @@ fn main() {
             ac_img.save(format!("{}/frame_{}_acoustic.png", &output_dir, id)).unwrap();
             fs::write(format!("{}/frame_{}_history.bin", &output_dir, id), &history).unwrap();
             sim.render_visual().save(format!("{}/frame_{}_visual.png", &output_dir, id)).unwrap();
-            fs::write(format!("{}/frame_{}_meta.json", &output_dir, id), format!(r#"{{"dominant_species": "{}"}}"#, species.name())).unwrap();
+            
+            // Save metadata with multi-label and counting information
+            let dominant = species.name();
+            let species_array: Vec<String> = sim.species_in_beam.iter()
+                .map(|s| format!("\"{}\"", s))
+                .collect();
+            
+            // Build species_counts JSON object
+            let counts_obj = if sim.species_counts.is_empty() {
+                r#"{"Kingfish": 0, "Snapper": 0, "Cod": 0, "Empty": 0}"#.to_string()
+            } else {
+                let pairs: Vec<String> = sim.species_counts.iter()
+                    .map(|(k, v)| format!("\"{}\": {}", k, v))
+                    .collect();
+                format!("{{{}}}", pairs.join(", "))
+            };
+            
+            let meta = if species_array.is_empty() {
+                // No fish in beam - empty frame
+                format!(
+                    r#"{{"dominant_species": "Empty", "species_present": ["Empty"], "species_counts": {}}}"#,
+                    counts_obj
+                )
+            } else {
+                format!(
+                    r#"{{"dominant_species": "{}", "species_present": [{}], "species_counts": {}}}"#,
+                    dominant,
+                    species_array.join(", "),
+                    counts_obj
+                )
+            };
+            fs::write(format!("{}/frame_{}_meta.json", &output_dir, id), meta).unwrap();
 
             if frame_count % 50 == 0 { println!("  -> {} frames...", frame_count); }
         }

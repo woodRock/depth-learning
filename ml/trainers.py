@@ -98,14 +98,22 @@ class BaseTrainer(ABC):
         """Save model weights."""
         os.makedirs(self.config.weights_dir, exist_ok=True)
         torch.save(
-            self.model.state_dict(), 
+            self.model.state_dict(),
             os.path.join(self.config.weights_dir, "fish_clip_model.pth")
         )
+        
+        # Save model config with task information
+        model_config = {
+            "model_type": self.config.model_type,
+            "config": vars(self.config)
+        }
+        
+        # Add task information for LeWM
+        if hasattr(self.model, 'task'):
+            model_config["task"] = self.model.task
+        
         with open(os.path.join(self.config.weights_dir, "model_config.json"), "w") as f:
-            json.dump({
-                "model_type": self.config.model_type, 
-                "config": vars(self.config)
-            }, f)
+            json.dump(model_config, f, indent=2)
 
 
 class JEPATrainer(BaseTrainer):
@@ -224,13 +232,13 @@ class JEPATrainer(BaseTrainer):
 
 
 class LeWMTrainer(BaseTrainer):
-    """Trainer for LeWorldModel (LeWM) architecture."""
-    
-    def build_model(self) -> nn.Module:
-        """Build LeWorldModel."""
-        from models.lewm import LeWorldModel
-        
-        return LeWorldModel(
+    """Trainer for LeWorldModel with multi-label presence/absence or counting."""
+
+    def build_model(self, task: str = "presence") -> nn.Module:
+        """Build LeWorldModel with task-specific head."""
+        from models.lewm_multilabel import LeWorldModelMultiLabel
+
+        return LeWorldModelMultiLabel(
             embed_dim=self.config.embed_dim,
             num_layers=8,
             num_heads=8,
@@ -239,21 +247,29 @@ class LeWMTrainer(BaseTrainer):
             n_classes=4,
             use_classifier=True,
             use_decoder=True,  # Enable world reconstruction decoder
+            task=task,
         ).to(self.device)
-    
+
     def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
-        """Train LeWM for one epoch."""
+        """Train LeWM for one epoch with task-specific loss."""
         self.model.train()
         total_loss = 0
         total_loss_pred = 0
         total_loss_cls = 0
         total_loss_sigreg = 0
         total_loss_recon = 0
-        correct = 0
-        total = 0
+
+        # Multi-label metrics
+        total_precision = 0
+        total_recall = 0
+        total_f1 = 0
+        total_mae = 0
+        total_rmse = 0
+        total_samples = 0
 
         pbar = tqdm(loader, desc="Training")
         for vis, ac, labels in pbar:
+            # labels is now (B, 4) multi-hot vector
             vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
 
             self.optimizer.zero_grad()
@@ -280,11 +296,49 @@ class LeWMTrainer(BaseTrainer):
             total_loss_sigreg += sigreg_loss.item()
             total_loss_recon += recon_loss.item()
 
-            preds = torch.argmax(species_logits, dim=1)
-            correct += (preds == labels).sum().item()
-            total += labels.size(0)
+            # Compute task-specific metrics
+            if hasattr(self.model, 'task') and self.model.task == "counting":
+                # Counting metrics: MAE, RMSE on original scale
+                # Apply same scaling as loss: tanh(x/10) * 20
+                pred_counts = torch.tanh(species_logits / 10.0) * 20.0
+                pred_counts = pred_counts.clamp(min=0, max=20)  # Ensure non-negative
+                labels_counts = labels.clamp(min=0, max=20)
+                
+                mae = F.l1_loss(pred_counts, labels_counts)
+                rmse = torch.sqrt(F.mse_loss(pred_counts, labels_counts))
+                
+                total_mae += mae.item()
+                total_rmse += rmse.item()
+                
+                pbar.set_postfix({
+                    "loss": f"{loss.item():.3f}",
+                    "mae": f"{mae.item():.3f}",
+                })
+            else:
+                # Presence/absence metrics: precision, recall, F1
+                probs = torch.sigmoid(species_logits)
+                preds = (probs > 0.5).float()
 
-            pbar.set_postfix({"loss": f"{loss.item():.3f}", "acc": f"{100*correct/total:.1f}%"})
+                # Per-sample F1, then average
+                for i in range(labels.shape[0]):
+                    tp = (preds[i] * labels[i]).sum().item()
+                    fp = (preds[i] * (1 - labels[i])).sum().item()
+                    fn = ((1 - preds[i]) * labels[i]).sum().item()
+
+                    precision = tp / (tp + fp + 1e-8)
+                    recall = tp / (tp + fn + 1e-8)
+                    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+
+                    total_precision += precision
+                    total_recall += recall
+                    total_f1 += f1
+
+                pbar.set_postfix({
+                    "loss": f"{loss.item():.3f}",
+                    "f1": f"{100*total_f1/(total_samples + labels.shape[0]):.1f}%"
+                })
+
+            total_samples += labels.shape[0]
 
         return {
             "loss": total_loss / len(loader),
@@ -292,19 +346,35 @@ class LeWMTrainer(BaseTrainer):
             "loss_cls": total_loss_cls / len(loader),
             "loss_sigreg": total_loss_sigreg / len(loader),
             "loss_recon": total_loss_recon / len(loader),
-            "acc": correct / total,
+            "precision": total_precision / total_samples,
+            "recall": total_recall / total_samples,
+            "f1": total_f1 / total_samples,
+            "mae": total_mae / total_samples if total_samples > 0 else 0,
+            "rmse": total_rmse / total_samples if total_samples > 0 else 0,
         }
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
-        """Validate LeWM model."""
+        """Validate LeWM model with task-specific metrics."""
         self.model.eval()
         total_loss = 0
         total_loss_pred = 0
         total_loss_cls = 0
         total_loss_sigreg = 0
         total_loss_recon = 0
-        correct = 0
-        total = 0
+
+        # Task-specific metrics
+        total_precision = 0
+        total_recall = 0
+        total_f1 = 0
+        total_mae = 0
+        total_rmse = 0
+        total_samples = 0
+
+        # Per-class metrics (for presence task)
+        class_tp = torch.zeros(4)
+        class_fp = torch.zeros(4)
+        class_fn = torch.zeros(4)
+
         last_recon = None
         last_target = None
 
@@ -314,7 +384,7 @@ class LeWMTrainer(BaseTrainer):
 
                 pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
                 target_img = vis if self.model.use_decoder else None
-                
+
                 loss, pred_loss, sigreg_loss, cls_loss, recon_loss = self.model.compute_loss(
                     pred_emb, goal_emb, species_logits, labels,
                     recon_img=recon_img,
@@ -329,14 +399,55 @@ class LeWMTrainer(BaseTrainer):
                 total_loss_sigreg += sigreg_loss.item()
                 total_loss_recon += recon_loss.item()
 
-                preds = torch.argmax(species_logits, dim=1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-                
+                # Compute task-specific metrics
+                if hasattr(self.model, 'task') and self.model.task == "counting":
+                    # Counting: MAE, RMSE on original scale
+                    pred_counts = torch.tanh(species_logits / 10.0) * 20.0
+                    pred_counts = pred_counts.clamp(min=0, max=20)
+                    labels_counts = labels.clamp(min=0, max=20)
+                    
+                    mae = F.l1_loss(pred_counts, labels_counts)
+                    rmse = torch.sqrt(F.mse_loss(pred_counts, labels_counts))
+                    total_mae += mae.item()
+                    total_rmse += rmse.item()
+                else:
+                    # Presence/absence: precision, recall, F1
+                    probs = torch.sigmoid(species_logits)
+                    preds = (probs > 0.5).float()
+
+                    for i in range(labels.shape[0]):
+                        tp = preds[i] * labels[i]
+                        fp = preds[i] * (1 - labels[i])
+                        fn = (1 - preds[i]) * labels[i]
+
+                        for c in range(4):
+                            class_tp[c] += tp[c].item()
+                            class_fp[c] += fp[c].item()
+                            class_fn[c] += fn[c].item()
+
+                        tp_sum = tp.sum().item()
+                        fp_sum = fp.sum().item()
+                        fn_sum = fn.sum().item()
+
+                        precision = tp_sum / (tp_sum + fp_sum + 1e-8)
+                        recall = tp_sum / (tp_sum + fn_sum + 1e-8)
+                        f1 = 2 * precision * recall / (precision + recall + 1e-8)
+
+                        total_precision += precision
+                        total_recall += recall
+                        total_f1 += f1
+
+                total_samples += labels.shape[0]
+
                 # Save last reconstruction for logging
                 if recon_img is not None:
                     last_recon = recon_img[0].cpu().clamp(0, 1)
                     last_target = target_img[0].cpu().clamp(0, 1) if target_img is not None else None
+
+        # Per-class F1 (only for presence task)
+        class_precision = class_tp / (class_tp + class_fp + 1e-8)
+        class_recall = class_tp / (class_tp + class_fn + 1e-8)
+        class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
 
         return {
             "loss": total_loss / len(loader),
@@ -344,14 +455,26 @@ class LeWMTrainer(BaseTrainer):
             "loss_cls": total_loss_cls / len(loader),
             "loss_sigreg": total_loss_sigreg / len(loader),
             "loss_recon": total_loss_recon / len(loader),
-            "acc": correct / total,
+            "precision": total_precision / total_samples,
+            "recall": total_recall / total_samples,
+            "f1": total_f1 / total_samples,
+            "mae": total_mae / total_samples if total_samples > 0 else 0,
+            "rmse": total_rmse / total_samples if total_samples > 0 else 0,
+            "f1_kingfish": class_f1[0].item(),
+            "f1_snapper": class_f1[1].item(),
+            "f1_cod": class_f1[2].item(),
+            "f1_empty": class_f1[3].item(),
             "last_recon": last_recon,
             "last_target": last_target,
         }
-    
+
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
-        """Use accuracy for model selection."""
-        return val_metrics["acc"]
+        """Use task-appropriate metric for model selection."""
+        # For counting task, use negative MAE (lower is better)
+        if val_metrics.get("mae", 0) > 0 and val_metrics.get("f1", 0) == 0:
+            return -val_metrics["mae"]  # Negative because lower MAE is better
+        # For presence task, use F1 (higher is better)
+        return val_metrics["f1"]
 
 
 def get_trainer(config: TrainingConfig, device: torch.device) -> BaseTrainer:

@@ -6,8 +6,8 @@ This script serves as the single entry point for training any model in the syste
 It uses a command-based architecture to route to appropriate training pipelines.
 
 Usage:
-    python train.py jePA --model transformer --epochs 80
-    python train.py lewm --epochs 100
+    python train.py jepa --model transformer --epochs 80
+    python train.py lewm --epochs 100 --task presence  # or counting
     python train.py decoder --epochs 50
     python train.py fusion --epochs 50
     python train.py translator --epochs 100
@@ -95,18 +95,19 @@ def train_jepa(args: argparse.Namespace) -> None:
 
 
 def train_lewm(args: argparse.Namespace) -> None:
-    """Train LeWorldModel (End-to-end JEPA with Gaussian regularization)."""
+    """Train LeWorldModel with multi-label presence/absence or counting."""
     # Set model type for args before creating config
     args.model = "lewm"
     config = TrainingConfig.from_args(args)
     device = _get_device()
-    
+
     print(f"--- Starting LeWorldModel Training on {device} ---")
+    print(f"--- Task: {args.task.upper()} ---")
     print(f"--- Dataset: {config.dataset} | Augmentation: {'enabled' if config.with_aug else 'disabled'} ---")
-    
-    setup_wandb(config, job_type="lewm-train")
-    
-    # Create data loaders
+
+    setup_wandb(config, job_type=f"lewm-{args.task}")
+
+    # Create data loaders with multi_label=True and task-specific format
     aug_config = AugmentationConfig(
         enabled=config.with_aug,
         light=config.light_aug,
@@ -115,17 +116,31 @@ def train_lewm(args: argparse.Namespace) -> None:
     transform = create_visual_transform(aug_config)
     dataset_path = _get_dataset_path(config.dataset)
 
-    from data import create_data_loaders
-    train_loader, val_loader = create_data_loaders(
-        dataset_path=dataset_path,
-        transform=transform,
-        batch_size=config.batch_size,
-        n_chunks=config.n_chunks,
+    from data import FishDataset
+    from torch.utils.data import Subset
+    
+    # Create dataset with multi_label=True and task-specific labels
+    full_dataset = FishDataset(
+        dataset_path, 
+        transform=transform, 
+        mode="train", 
+        multi_label=True,
+        task=args.task
     )
     
+    # Split into train/val
+    from data import create_stratified_split
+    train_indices, val_indices = create_stratified_split(full_dataset)
+    
+    train_ds = Subset(full_dataset, train_indices)
+    val_ds = Subset(FishDataset(dataset_path, transform=transform, mode="val", multi_label=True, task=args.task), val_indices)
+    
+    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.batch_size, shuffle=True, drop_last=True)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
+
     # Get trainer and train
     trainer = get_trainer(config, device)
-    trainer.model = trainer.build_model()
+    trainer.model = trainer.build_model(task=args.task)
     trainer.optimizer = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, trainer.model.parameters()),
         lr=config.learning_rate,
@@ -134,7 +149,7 @@ def train_lewm(args: argparse.Namespace) -> None:
     trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         trainer.optimizer, T_max=config.epochs
     )
-    
+
     trainer.train(train_loader, val_loader)
     wandb.finish()
 
@@ -275,20 +290,20 @@ def main() -> None:
     add_common_args(jepa_parser)
     jepa_parser.set_defaults(func=train_jepa)
     
-    # LeWM parser
-    lewm_parser = subparsers.add_parser("lewm", help="Train LeWorldModel")
+    # LeWM parser (multi-label presence/absence detection or counting)
+    lewm_parser = subparsers.add_parser("lewm", help="Train LeWorldModel with multi-label tasks")
     lewm_parser.add_argument("--epochs", type=int, default=100)
     lewm_parser.add_argument("--lr", type=float, default=3e-4)
     lewm_parser.add_argument("--batch-size", type=int, default=32)
     lewm_parser.add_argument("--weight-decay", type=float, default=0.05)
-    lewm_parser.add_argument("--label-smoothing", type=float, default=0.1)
-    lewm_parser.add_argument("--use-focal-loss", action="store_true", default=True)
+    lewm_parser.add_argument("--task", type=str, default="presence", choices=["presence", "counting"],
+                            help="Task type: presence (presence/absence) or counting (fish counts)")
     lewm_parser.add_argument("--rotation-degrees", type=int, default=30)
     lewm_parser.add_argument("--n-chunks", type=int, default=10)
     lewm_parser.add_argument("--sigreg-weight", type=float, default=0.1)
     add_common_args(lewm_parser)
     lewm_parser.set_defaults(func=train_lewm)
-    
+
     # Decoder parser
     decoder_parser = subparsers.add_parser("decoder", help="Train Latent Decoder")
     decoder_parser.add_argument("--epochs", type=int, default=50)

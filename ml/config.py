@@ -56,8 +56,8 @@ class TrainingConfig:
             with_aug=args.with_aug,
             light_aug=args.light_aug,
             rotation_degrees=args.rotation_degrees,
-            label_smoothing=args.label_smoothing,
-            use_focal_loss=args.use_focal_loss,
+            label_smoothing=getattr(args, 'label_smoothing', 0.1),
+            use_focal_loss=getattr(args, 'use_focal_loss', True),
             sigreg_weight=args.sigreg_weight,
         )
 

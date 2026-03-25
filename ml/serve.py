@@ -22,7 +22,7 @@ from models.lstm import AcousticLSTM
 from models.ast import AcousticAST
 from models.fusion import MaskedAttentionFusion
 from models.mae import AcousticMAE
-from models.lewm import LeWorldModel
+from models.lewm_multilabel import LeWorldModelMultiLabel
 
 app = FastAPI()
 device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
@@ -93,8 +93,14 @@ async def load_model():
         print("Loaded Fusion Model.")
     elif model_type == "lewm":
         # LeWorldModel: Acoustic-only, with world reconstruction decoder
-        # Auto-detects architecture from saved weights
-        model = LeWorldModel(
+        # Load task from config
+        task = "presence"  # Default
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+                task = cfg.get("task", "presence")
+        
+        model = LeWorldModelMultiLabel(
             embed_dim=256,
             num_layers=8,  # Match saved weights
             num_heads=8,
@@ -102,7 +108,8 @@ async def load_model():
             drop=0.1,
             n_classes=4,
             use_classifier=True,
-            use_decoder=True  # Enable world reconstruction for visualization
+            use_decoder=True,  # Enable world reconstruction for visualization
+            task=task  # Load correct task head
         )
         if os.path.exists(weights_path):
             # Load with strict=False to handle minor architecture differences
@@ -110,6 +117,7 @@ async def load_model():
             print("Loaded LeWorldModel (LeWM) with World Decoder.")
             print("  Note: Using auto-detect for timestep size (32 or 64)")
             print("  World reconstruction enabled for visualization")
+            print(f"  Task: {task.upper()}")
         else:
             print("Warning: No LeWM weights found, using random initialization")
     else:
@@ -136,21 +144,23 @@ async def load_model():
 async def predict(file: UploadFile = File(...)):
     global prediction_history
     contents = await file.read()
-    image = Image.open(io.BytesIO(contents)).convert("RGB")  # Ensure RGB, not RGBA
+    image = Image.open(io.BytesIO(contents)).convert('RGB')  # Ensure RGB, not RGBA
 
-    img_np = np.array(image)  # (256 height, 512 width, 3) = (depth, pings, channels)
+    img_np = np.array(image)  # Echogram format from simulation: (256 depth, 512 pings, 3 channels)
     
-    # The echogram scrolls horizontally: X-axis = time (pings), Y-axis = depth
-    # Extract the rightmost 32 pings (columns) and transpose to match training format
-    # Training format: (32 pings, 256 depth, 3 channels)
+    print(f"DEBUG: echogram shape: {img_np.shape}")
+
+    # Simulation sends full 512-ping scrolling echogram
+    # Training data is 32 pings wide
+    # Extract the rightmost (most recent) 32 pings to match training
+    if img_np.shape[1] > 32:
+        img_np = img_np[:, -32:, :]  # Take last 32 pings
+        print(f"DEBUG: cropped to last 32 pings: {img_np.shape}")
     
-    # Extract last 32 pings: (256, 512, 3) -> (256, 32, 3)
-    last_32_pings = img_np[:, -32:, :]
+    # The echogram is now (256, 32, 3) = (depth, pings, channels)
+    # Transpose to match training format: (32 pings, 256 depth, 3 channels)
+    history_32 = img_np.transpose(1, 0, 2).astype(np.float32) / 255.0
     
-    # Transpose to match training format: (32, 256, 3)
-    history_32 = last_32_pings.transpose(1, 0, 2).astype(np.float32) / 255.0
-    
-    print(f"DEBUG: last_32_pings shape: {last_32_pings.shape}")
     print(f"DEBUG: history_32 shape: {history_32.shape}")
 
     # Flatten to (1, 32 * 256 * 3) = (1, 24576)
@@ -215,14 +225,28 @@ async def predict(file: UploadFile = File(...)):
             img_base64 = ""
 
         # Classification + Smoothing
-        probs = F.softmax(species_logits, dim=1).squeeze()
+        # Support both presence (sigmoid) and counting (tanh-scaled)
+        if model_type == "lewm":
+            # Check model task from model itself
+            if hasattr(model, 'task') and model.task == "counting":
+                # Counting: model output is tanh-scaled (0-20 range)
+                probs = species_logits.squeeze()
+                # Already bounded by tanh, just ensure non-negative
+                probs = probs.clamp(0, 20)
+            else:
+                # Presence/absence: sigmoid for independent probabilities
+                probs = torch.sigmoid(species_logits).squeeze()
+        else:
+            # Other models: softmax for single-label
+            probs = F.softmax(species_logits, dim=1).squeeze()
+
         prediction_history.append(probs)
-        if len(prediction_history) > 10: 
+        if len(prediction_history) > 10:
             prediction_history.pop(0)
-        
+
         avg_probs = torch.stack(prediction_history).mean(dim=0)
         print(f"DEBUG: raw avg_probs: {avg_probs.tolist()}")
-        
+
         # Use SPECIES_MAP for consistent ordering
         # Sort by value to get [0, 1, 2, 3] order
         species_names = [name for name, _ in sorted(FishDataset.SPECIES_MAP.items(), key=lambda x: x[1])]
@@ -232,7 +256,9 @@ async def predict(file: UploadFile = File(...)):
             
     return {
         "predictions": sorted(scores, key=lambda x: x[1], reverse=True),
-        "generated_image": img_base64
+        "generated_image": img_base64,
+        "is_multilabel": model_type == "lewm",
+        "task": getattr(model, 'task', 'presence') if model_type == "lewm" else "single_label"
     }
 
 if __name__ == "__main__":
