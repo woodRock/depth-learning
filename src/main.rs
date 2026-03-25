@@ -107,9 +107,11 @@ struct InferenceChannels {
 #[derive(Resource)]
 struct InferenceResult {
     pub predictions: Vec<(String, f32)>,
-    pub ground_truth_dist: Vec<(String, f32)>, 
+    pub ground_truth_dist: Vec<(String, f32)>,
     pub correct_count: u32,
     pub total_count: u32,
+    pub per_class_correct: std::collections::HashMap<String, u32>,  // Per-class accuracy tracking
+    pub per_class_total: std::collections::HashMap<String, u32>,
     pub timer: Timer,
 }
 
@@ -120,6 +122,8 @@ impl Default for InferenceResult {
             ground_truth_dist: Vec::new(),
             correct_count: 0,
             total_count: 0,
+            per_class_correct: std::collections::HashMap::new(),
+            per_class_total: std::collections::HashMap::new(),
             timer: Timer::from_seconds(0.5, TimerMode::Repeating),
         }
     }
@@ -616,6 +620,27 @@ fn ui_tiled_windows_system(
                     .color(egui::Color32::LIGHT_GREEN)
                     .strong(),
             );
+            
+            // Balanced accuracy (macro average of per-class accuracy)
+            ui.separator();
+            let mut balanced_acc = 0.0;
+            let mut class_count = 0;
+            for (class_name, total) in &inference.per_class_total {
+                if *total > 0 {
+                    let correct = inference.per_class_correct.get(class_name).copied().unwrap_or(0);
+                    let class_acc = correct as f32 / *total as f32;
+                    balanced_acc += class_acc;
+                    class_count += 1;
+                }
+            }
+            if class_count > 0 {
+                balanced_acc /= class_count as f32;
+                ui.label(
+                    egui::RichText::new(format!("Balanced Acc: {:.1}%", balanced_acc * 100.0))
+                        .color(egui::Color32::YELLOW)
+                        .strong(),
+                );
+            }
         });
     });
 
@@ -738,6 +763,36 @@ fn ui_tiled_windows_system(
                             });
                             ui.add_space(10.0);
                             ui.label(format!("Samples Analyzed: {}", inference.total_count));
+                            
+                            // Per-class accuracy breakdown
+                            ui.add_space(5.0);
+                            ui.group(|ui| {
+                                ui.label(egui::RichText::new("Per-Class Accuracy:").strong());
+                                ui.add_space(5.0);
+                                for class_name in ["Kingfish", "Snapper", "Cod", "Empty"] {
+                                    if let Some(total) = inference.per_class_total.get(class_name) {
+                                        if *total > 0 {
+                                            let correct = inference.per_class_correct.get(class_name).copied().unwrap_or(0);
+                                            let class_acc = correct as f32 / *total as f32 * 100.0;
+                                            let color = if class_acc >= 80.0 {
+                                                egui::Color32::LIGHT_GREEN
+                                            } else if class_acc >= 50.0 {
+                                                egui::Color32::YELLOW
+                                            } else {
+                                                egui::Color32::LIGHT_RED
+                                            };
+                                            ui.label(
+                                                egui::RichText::new(format!("  {}: {:.1}% ({}/{})", class_name, class_acc, correct, *total))
+                                                    .color(color)
+                                            );
+                                        } else {
+                                            ui.label(format!("  {}: No samples", class_name));
+                                        }
+                                    } else {
+                                        ui.label(format!("  {}: No samples", class_name));
+                                    }
+                                }
+                            });
                         });
                     });
                 });
@@ -796,13 +851,18 @@ fn model_inference_system(
 ) {
     while let Ok(resp) = channels.rx_preds.try_recv() {
         inference.predictions = resp.predictions.clone();
-        
+
         if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
             let top_gt_name = top_gt.clone();
             if let Some((top_pred, _)) = resp.predictions.first() {
                 inference.total_count += 1;
+                
+                // Track per-class accuracy
+                *inference.per_class_total.entry(top_gt_name.clone()).or_insert(0) += 1;
+                
                 if top_pred == &top_gt_name {
                     inference.correct_count += 1;
+                    *inference.per_class_correct.entry(top_gt_name.clone()).or_insert(0) += 1;
                 }
             }
         }
