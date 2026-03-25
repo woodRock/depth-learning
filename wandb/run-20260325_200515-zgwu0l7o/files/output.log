@@ -1,0 +1,9 @@
+Balanced Dataset: 3000 Fish frames, 500 Empty frames.
+Dataset class distribution:
+  Kingfish: 1000 samples (28.6%)
+  Snapper: 1000 samples (28.6%)
+  Cod: 1000 samples (28.6%)
+  Empty: 500 samples (14.3%)
+Train samples: 2800 | Val samples: 700
+Balanced Dataset: 3000 Fish frames, 500 Empty frames.
+Training:   3%|▊                       | 3/87 [00:33<13:06,  9.36s/it, loss=1.909, acc=40.6%]

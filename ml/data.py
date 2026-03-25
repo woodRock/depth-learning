@@ -68,13 +68,16 @@ class FishDataset(Dataset):
         data_dir: str,
         transform: Optional[Callable] = None,
         mode: str = "train",
+        seed: int = 42,
     ):
         self.data_dir = Path(data_dir)
         self.mode = mode
         self.transform = transform
+        self.seed = seed
         
         self.visual_files = self._load_valid_samples()
         
+        # Only balance if specifically requested (usually for training)
         if mode == "train":
             self.visual_files = self._balance_classes()
     
@@ -105,12 +108,19 @@ class FishDataset(Dataset):
                 else:
                     fish_samples.append(v_path)
         
-        np.random.shuffle(empty_samples)
-        num_to_keep = min(len(empty_samples), len(fish_samples))
+        # Use deterministic RNG for balancing
+        rng = np.random.RandomState(self.seed)
+        rng.shuffle(empty_samples)
         
-        print(f"Balanced Dataset: {len(fish_samples)} Fish frames, {num_to_keep} Empty frames.")
-        return fish_samples + empty_samples[:num_to_keep]
-    
+        # Avoid downsampling if Empty is already the minority
+        if len(empty_samples) > len(fish_samples) and len(fish_samples) > 0:
+            num_to_keep = len(fish_samples)
+            print(f"Balanced Dataset: {len(fish_samples)} Fish frames, {num_to_keep} Empty frames.")
+            return fish_samples + empty_samples[:num_to_keep]
+        else:
+            print(f"Dataset already balanced or Empty is minority: {len(fish_samples)} Fish, {len(empty_samples)} Empty.")
+            return fish_samples + empty_samples
+
     def __len__(self) -> int:
         return len(self.visual_files)
     
@@ -125,7 +135,7 @@ class FishDataset(Dataset):
         # Load acoustic history
         data = self._load_acoustic_data(history_path)
         
-        # Apply acoustic augmentation during training (ALWAYS on for training)
+        # Apply acoustic augmentation during training
         if self.mode == "train":
             data = self._apply_acoustic_augmentation(data)
         
@@ -149,9 +159,12 @@ class FishDataset(Dataset):
             expected = 32 * 256 * 3
             data = raw_data[:expected].reshape(32, 256, 3).astype(np.float32) / 255.0
         return data
-    
+
     def _apply_acoustic_augmentation(self, data: np.ndarray) -> np.ndarray:
         """Apply acoustic data augmentation."""
+        # Use a local RNG to avoid global state issues
+        # But for training, we WANT variety, so we don't use a fixed seed here
+        
         # 1. Temporal Jitter
         shift = np.random.randint(-3, 4)
         data = np.roll(data, shift, axis=0)
@@ -239,18 +252,12 @@ class ImageLatentDataset(Dataset):
 
 def create_stratified_split(
     dataset: FishDataset,
-    n_chunks: int = 10,
     train_ratio: float = 0.8,
 ) -> tuple:
-    """Create stratified train/val split that preserves class ratios.
-    
-    Unlike balanced sampling, this maintains the original class distribution
-    in both train and val sets. This is useful when you want to use all
-    available data without discarding samples.
-    """
+    """Create stratified train/val split that preserves class ratios."""
     total_frames = len(dataset)
     
-    # Group by class - use dataset's visual_files directly to get labels
+    # Group by class
     class_indices: Dict[int, List[int]] = {0: [], 1: [], 2: [], 3: []}
     for idx in range(total_frames):
         vis_path = dataset.visual_files[idx]
@@ -260,24 +267,13 @@ def create_stratified_split(
             label = dataset.SPECIES_MAP.get(meta["dominant_species"], 3)
             class_indices[label].append(idx)
     
-    # Remove classes with too few samples
-    class_indices = {k: v for k, v in class_indices.items() if len(v) > 10}
-    
-    if not class_indices:
-        raise ValueError("Not enough samples in any class (need >10 per class)")
-    
-    # Print class distribution for debugging
-    print(f"Dataset class distribution:")
-    for label, indices in sorted(class_indices.items()):
-        label_names = {0: "Kingfish", 1: "Snapper", 2: "Cod", 3: "Empty"}
-        print(f"  {label_names.get(label, 'Unknown')}: {len(indices)} samples ({len(indices)/total_frames*100:.1f}%)")
-    
     # Stratified split: maintain same ratio in train/val for each class
     train_indices = []
     val_indices = []
-    rng = np.random.RandomState(42)
+    rng = np.random.RandomState(dataset.seed) # Use dataset's seed
     
     for class_label, indices in class_indices.items():
+        if not indices: continue
         rng.shuffle(indices)
         
         # Split this class's samples into train/val
@@ -298,27 +294,44 @@ def create_data_loaders(
     batch_size: int,
     n_chunks: int = 10,
     num_workers: int = 4,
+    seed: int = 42,
 ) -> tuple:
     """Create train and validation data loaders with stratified splitting."""
-    # Note: use_augmentation is not needed - acoustic augmentation is always on for training
-    # Visual augmentation is controlled by the transform parameter
-    full_dataset = FishDataset(dataset_path, transform=transform)
+    # 1. Create one full dataset without balancing to get consistent indices
+    full_dataset = FishDataset(dataset_path, transform=transform, mode="val", seed=seed)
     
     if len(full_dataset) < batch_size:
         raise ValueError(f"Not enough data. Found {len(full_dataset)} samples.")
     
-    train_indices, val_indices = create_stratified_split(full_dataset, n_chunks)
+    # 2. Split indices using the un-balanced full_dataset
+    train_indices, val_indices = create_stratified_split(full_dataset)
     
-    print(f"Train samples: {len(train_indices)} | Val samples: {len(val_indices)}")
+    print(f"Total samples: {len(full_dataset)} | Train indices: {len(train_indices)} | Val indices: {len(val_indices)}")
     
-    train_ds = Subset(
-        FishDataset(dataset_path, transform=transform, mode="train"),
-        train_indices,
-    )
-    val_ds = Subset(
-        FishDataset(dataset_path, transform=transform, mode="val"),
-        val_indices,
-    )
+    # 3. Create training dataset (balanced)
+    # Note: We can't easily balance AFTER splitting without changing indices.
+    # However, if we balance the WHOLE dataset first (deterministically), it works.
+    balanced_dataset = FishDataset(dataset_path, transform=transform, mode="train", seed=seed)
+    
+    # Now we need to split the BALANCED dataset
+    train_indices, val_indices = create_stratified_split(balanced_dataset)
+    
+    print(f"Balanced samples: {len(balanced_dataset)} | Train: {len(train_indices)} | Val: {len(val_indices)}")
+    
+    train_ds = Subset(balanced_dataset, train_indices)
+    
+    # Val dataset uses the SAME balanced dataset but with val_indices
+    # This ensures no overlap and consistent indexing
+    val_ds = Subset(balanced_dataset, val_indices)
+    
+    # Set mode="val" for val_ds to disable augmentations
+    # Subset doesn't have mode, so we'd need to handle it in FishDataset.__getitem__
+    # But FishDataset.mode is set for the whole balanced_dataset.
+    # We can create a separate dataset for validation with the same balanced files.
+    
+    val_ds_base = FishDataset(dataset_path, transform=transform, mode="val", seed=seed)
+    val_ds_base.visual_files = balanced_dataset.visual_files # COPY the balanced file list!
+    val_ds = Subset(val_ds_base, val_indices)
     
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)

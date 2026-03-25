@@ -123,13 +123,21 @@ impl Mesh {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+enum Difficulty {
+    Easy,
+    Medium,
+    Hard,
+}
+
 struct HeadlessSim {
     boids: Vec<Boid>,
     fish_mesh: Mesh,
+    difficulty: Difficulty,
 }
 
 impl HeadlessSim {
-    fn new(dominant_species: Species, seed: u64) -> Self {
+    fn new(dominant_species: Species, seed: u64, difficulty: Difficulty) -> Self {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut boids = Vec::with_capacity(FISH_COUNT);
         let fish_mesh = Mesh::load();
@@ -139,28 +147,47 @@ impl HeadlessSim {
         let fish_per_school = FISH_COUNT / school_count;
 
         for school_idx in 0..school_count {
-            let is_dominant = dominant_species != Species::Empty && (school_idx < 12); // 75% dominant
-            let species = if is_dominant {
-                dominant_species
-            } else if dominant_species == Species::Empty {
-                if rng.gen_bool(0.1) { *species_list.choose(&mut rng).unwrap() } else { Species::Empty }
+            // Determine species for this school
+            let species = if dominant_species == Species::Empty {
+                // If dominant is Empty, 95% chance school is empty
+                if rng.gen_bool(0.05) { *species_list.choose(&mut rng).unwrap() } else { Species::Empty }
             } else {
-                *species_list.choose(&mut rng).unwrap()
+                // 75% chance school is the dominant species
+                if rng.gen_bool(0.75) { dominant_species } else { *species_list.choose(&mut rng).unwrap() }
             };
 
             if species == Species::Empty { continue; }
 
             let school_id = school_idx as u32;
-            let base_heading = Vec3::new(1.0, 0.0, 0.0); // Easy Mode: East
+            
+            // Heading depends on difficulty
+            let base_heading = match difficulty {
+                Difficulty::Easy => {
+                    // Easy: Mostly East, with small random offset (+/- 15 degrees)
+                    let angle = rng.gen_range(-15.0..15.0).to_radians();
+                    Vec3::new(angle.cos(), 0.0, angle.sin())
+                },
+                Difficulty::Medium | Difficulty::Hard => {
+                    // Medium/Hard: Completely random horizontal direction
+                    let angle = rng.gen_range(0.0..360.0).to_radians();
+                    Vec3::new(angle.cos(), 0.0, angle.sin())
+                }
+            };
             
             for _ in 0..fish_per_school {
                 let (min_y, max_y) = species.preferred_depth_range();
+                
+                // Add some variety to depth range per school
+                let depth_offset = rng.gen_range(-0.5..0.5);
                 let pos = Vec3::new(
                     rng.gen_range(-TANK_SIZE.x / 2.0..TANK_SIZE.x / 2.0),
-                    rng.gen_range(min_y..max_y) - TANK_SIZE.y / 2.0,
+                    rng.gen_range(min_y..max_y) + depth_offset - TANK_SIZE.y / 2.0,
                     rng.gen_range(-TANK_SIZE.z / 2.0..TANK_SIZE.z / 2.0),
                 );
-                let speed = species.speed();
+                
+                // Add some speed variety (+/- 10%)
+                let speed_mult = rng.gen_range(0.9..1.1);
+                let speed = species.speed() * speed_mult;
 
                 boids.push(Boid {
                     pos,
@@ -176,14 +203,18 @@ impl HeadlessSim {
             }
         }
 
-        Self { boids, fish_mesh }
+        Self { boids, fish_mesh, difficulty }
     }
 
     fn step(&mut self, dt: f32, t: f32) {
         let boid_data: Vec<(Vec3, Vec3, u32)> = self.boids.iter().map(|b| (b.pos, b.velocity, b.school_id)).collect();
         
-        // Easy Mode weights
-        let (heading_strength, align_strength, cohere_strength) = (0.5, 0.3, 0.2);
+        // Steering weights depend on difficulty
+        let (heading_strength, align_strength, cohere_strength) = match self.difficulty {
+            Difficulty::Easy => (0.5, 0.3, 0.2),
+            Difficulty::Medium => (0.15, 0.8, 0.5),
+            Difficulty::Hard => (0.08, 1.5, 1.0),
+        };
 
         for i in 0..self.boids.len() {
             let mut separation = Vec3::ZERO;
@@ -212,6 +243,20 @@ impl HeadlessSim {
             }
 
             let boid = &mut self.boids[i];
+            
+            // Hard difficulty: Periodically change school heading
+            if self.difficulty == Difficulty::Hard && t > 0.0 && (t % 30.0) < dt {
+                let mut rng = thread_rng();
+                let angle = rng.gen_range(-20.0..20.0).to_radians();
+                let cos_a = angle.cos();
+                let sin_a = angle.sin();
+                let old_x = boid.base_heading.x;
+                let old_z = boid.base_heading.z;
+                boid.base_heading.x = old_x * cos_a - old_z * sin_a;
+                boid.base_heading.z = old_x * sin_a + old_z * cos_a;
+                boid.base_heading = boid.base_heading.normalize_or_zero();
+            }
+
             let mut accel = Vec3::ZERO;
             if neighbor_count > 0 {
                 let count_f = neighbor_count as f32;
@@ -385,18 +430,31 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut output_dir = "dataset/easy".to_string();
     let mut samples_per_species = 333;
+    let mut difficulty = Difficulty::Easy;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
             "--output" | "-o" => { i += 1; if i < args.len() { output_dir = args[i].clone(); } }
             "--samples" | "-n" => { i += 1; if i < args.len() { samples_per_species = args[i].parse().unwrap_or(333); } }
+            "--difficulty" | "-d" => { 
+                i += 1; 
+                if i < args.len() { 
+                    difficulty = match args[i].to_lowercase().as_str() {
+                        "easy" => Difficulty::Easy,
+                        "medium" => Difficulty::Medium,
+                        "hard" => Difficulty::Hard,
+                        _ => Difficulty::Easy,
+                    };
+                } 
+            }
             _ => {}
         }
         i += 1;
     }
 
     println!("🐟 DeepFish Bit-Fidelity Dataset Generator");
+    println!("   Difficulty: {:?}", difficulty);
     fs::create_dir_all(&output_dir).unwrap();
 
     let species_list = [Species::Kingfish, Species::Snapper, Species::Cod, Species::Empty];
@@ -407,7 +465,7 @@ fn main() {
         let n = if species == Species::Empty { samples_per_species / 2 } else { samples_per_species };
         println!("Generating {} frames for {}...", n, species.name());
         
-        let mut sim = HeadlessSim::new(species, master_rng.gen());
+        let mut sim = HeadlessSim::new(species, master_rng.gen(), difficulty);
         
         // Initial warm up (only once per species)
         let dt = 1.0 / 60.0;
