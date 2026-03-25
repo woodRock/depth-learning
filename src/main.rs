@@ -1430,30 +1430,30 @@ fn empty_frame_generator_system(
     mut fish_query: Query<&mut Boid>,
 ) {
     let dt = time.delta_secs();
-    
+
     // Configuration
     let empty_interval = 20.0;  // Seconds between empty periods
     let empty_duration = 3.0;   // How long empty period lasts
     let swim_away_heading = Vec3::new(0.0, 0.0, 1.0);  // Swim away in Z direction
-    
-    // Only generate empty frames in Easy mode (for clean dataset)
+
+    // Skip empty frame generation in Easy mode (fish should maintain fixed direction)
     // Medium/Hard will have natural gaps from fish movement
-    if difficulty.current != 0 {
+    if difficulty.current == 0 {
         return;
     }
-    
+
     empty_gen.timer += dt;
-    
+
     if empty_gen.is_empty_period {
         // Currently in empty period - make all fish swim away
         empty_gen.empty_period_timer -= dt;
-        
+
         for mut boid in fish_query.iter_mut() {
             // Override heading to swim away from transducer
             boid.base_heading = swim_away_heading;
             boid.velocity = swim_away_heading * boid.max_speed;
         }
-        
+
         if empty_gen.empty_period_timer <= 0.0 {
             // End empty period
             empty_gen.is_empty_period = false;

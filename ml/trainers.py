@@ -66,17 +66,29 @@ class BaseTrainer(ABC):
                 self.scheduler.step()
     
     def _log_metrics(
-        self, 
-        epoch: int, 
-        train_metrics: Dict[str, float], 
+        self,
+        epoch: int,
+        train_metrics: Dict[str, float],
         val_metrics: Dict[str, float]
     ) -> None:
         """Log metrics to wandb."""
-        wandb.log({
+        log_dict = {
             "epoch": epoch + 1,
             **{f"train_{k}": v for k, v in train_metrics.items()},
             **{f"val_{k}": v for k, v in val_metrics.items()},
-        })
+        }
+        
+        # Log reconstruction images if available
+        if "last_recon" in val_metrics and val_metrics["last_recon"] is not None:
+            import wandb
+            recon_img = val_metrics["last_recon"].permute(1, 2, 0).numpy()
+            log_dict["reconstruction"] = wandb.Image(recon_img, caption="Reconstructed from acoustic")
+            
+            if "last_target" in val_metrics and val_metrics["last_target"] is not None:
+                target_img = val_metrics["last_target"].permute(1, 2, 0).numpy()
+                log_dict["ground_truth"] = wandb.Image(target_img, caption="Ground truth visual")
+        
+        wandb.log(log_dict)
     
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Get score used for model selection."""
@@ -226,6 +238,7 @@ class LeWMTrainer(BaseTrainer):
             drop=0.1,
             n_classes=4,
             use_classifier=True,
+            use_decoder=True,  # Enable world reconstruction decoder
         ).to(self.device)
     
     def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
@@ -235,44 +248,53 @@ class LeWMTrainer(BaseTrainer):
         total_loss_pred = 0
         total_loss_cls = 0
         total_loss_sigreg = 0
+        total_loss_recon = 0
         correct = 0
         total = 0
-        
+
         pbar = tqdm(loader, desc="Training")
         for vis, ac, labels in pbar:
             vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
-            
+
             self.optimizer.zero_grad()
-            pred_emb, goal_emb, species_logits = self.model(ac)
-            
-            loss, pred_loss, sigreg_loss, loss_cls = self.model.compute_loss(
+            pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
+
+            # Compute reconstruction target (denormalize visual image)
+            target_img = vis if self.model.use_decoder else None
+
+            loss, pred_loss, sigreg_loss, loss_cls, recon_loss = self.model.compute_loss(
                 pred_emb, goal_emb, species_logits, labels,
+                recon_img=recon_img,
+                target_img=target_img,
                 sigreg_weight=self.config.sigreg_weight,
+                recon_weight=0.01,
             )
             loss.backward()
-            
+
             nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=1.0)
             self.optimizer.step()
-            
+
             total_loss += loss.item()
             total_loss_pred += pred_loss.item()
             total_loss_cls += loss_cls.item()
             total_loss_sigreg += sigreg_loss.item()
-            
+            total_loss_recon += recon_loss.item()
+
             preds = torch.argmax(species_logits, dim=1)
             correct += (preds == labels).sum().item()
             total += labels.size(0)
-            
+
             pbar.set_postfix({"loss": f"{loss.item():.3f}", "acc": f"{100*correct/total:.1f}%"})
-        
+
         return {
             "loss": total_loss / len(loader),
             "loss_pred": total_loss_pred / len(loader),
             "loss_cls": total_loss_cls / len(loader),
             "loss_sigreg": total_loss_sigreg / len(loader),
+            "loss_recon": total_loss_recon / len(loader),
             "acc": correct / total,
         }
-    
+
     def validate(self, loader: DataLoader) -> Dict[str, float]:
         """Validate LeWM model."""
         self.model.eval()
@@ -280,34 +302,51 @@ class LeWMTrainer(BaseTrainer):
         total_loss_pred = 0
         total_loss_cls = 0
         total_loss_sigreg = 0
+        total_loss_recon = 0
         correct = 0
         total = 0
-        
+        last_recon = None
+        last_target = None
+
         with torch.no_grad():
             for vis, ac, labels in loader:
                 vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
+
+                pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
+                target_img = vis if self.model.use_decoder else None
                 
-                pred_emb, goal_emb, species_logits = self.model(ac)
-                loss, pred_loss, sigreg_loss, cls_loss = self.model.compute_loss(
+                loss, pred_loss, sigreg_loss, cls_loss, recon_loss = self.model.compute_loss(
                     pred_emb, goal_emb, species_logits, labels,
+                    recon_img=recon_img,
+                    target_img=target_img,
                     sigreg_weight=self.config.sigreg_weight,
+                    recon_weight=0.01,
                 )
-                
+
                 total_loss += loss.item()
                 total_loss_pred += pred_loss.item()
                 total_loss_cls += cls_loss.item()
                 total_loss_sigreg += sigreg_loss.item()
-                
+                total_loss_recon += recon_loss.item()
+
                 preds = torch.argmax(species_logits, dim=1)
                 correct += (preds == labels).sum().item()
                 total += labels.size(0)
-        
+                
+                # Save last reconstruction for logging
+                if recon_img is not None:
+                    last_recon = recon_img[0].cpu().clamp(0, 1)
+                    last_target = target_img[0].cpu().clamp(0, 1) if target_img is not None else None
+
         return {
             "loss": total_loss / len(loader),
             "loss_pred": total_loss_pred / len(loader),
             "loss_cls": total_loss_cls / len(loader),
             "loss_sigreg": total_loss_sigreg / len(loader),
+            "loss_recon": total_loss_recon / len(loader),
             "acc": correct / total,
+            "last_recon": last_recon,
+            "last_target": last_target,
         }
     
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:

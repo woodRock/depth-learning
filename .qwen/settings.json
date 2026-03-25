@@ -18,7 +18,18 @@
       "Bash(timeout *)",
       "Bash(true)",
       "Bash(sleep *)",
-      "Bash(pkill *)"
+      "Bash(pkill *)",
+      "Bash(cargo build)",
+      "Bash(mv *)",
+      "Bash(mkdir *)",
+      "Bash(find *)",
+      "Bash(git log *)",
+      "Bash(cargo run)",
+      "Bash(do *)",
+      "Bash(done)",
+      "Bash(git reset *)",
+      "Bash(git checkout *)"
     ]
-  }
+  },
+  "$version": 3
 }

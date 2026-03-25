@@ -129,11 +129,13 @@ Target strengths are provided for three frequencies: (38 kHz, 120 kHz, 200 kHz).
 
 Three difficulty modes control fish behavior complexity for curriculum learning:
 
-| Mode | Fish Behavior | Heading Changes | School Independence | Use Case |
-|------|---------------|-----------------|---------------------|----------|
-| **Easy** | All fish swim east in parallel lines | Never | 0% (identical) | Learning basic patterns |
-| **Medium** | Schools have independent directions | Every ~90s | 50% | Generalization testing |
-| **Hard** | Natural flocking with frequent turns | Every ~30s | 100% | Realistic challenge |
+| Mode | Fish Behavior | Heading Changes | Empty Frames | Use Case |
+|------|---------------|-----------------|--------------|----------|
+| **Easy** | All fish swim east in parallel lines | **Never** | **No** (fish always present) | Learning basic patterns |
+| **Medium** | Schools have independent directions | Every ~90s | **Yes** (~15%) | Generalization testing |
+| **Hard** | Natural flocking with frequent turns | Every ~30s | **Yes** (~15%) | Realistic challenge |
+
+**Note:** Easy mode has no empty frames to maintain clean, predictable data. Empty frames are automatically generated only in Medium/Hard modes.
 
 ### Dataset Statistics
 
@@ -145,10 +147,18 @@ Three difficulty modes control fish behavior complexity for curriculum learning:
 
 **Expected Class Distribution (Easy, 3000 frames):**
 ```
-Kingfish:  ~750-900 samples  (25-30%)
-Snapper:   ~750-900 samples  (25-30%)
-Cod:       ~750-900 samples  (25-30%)
-Empty:     ~300-450 samples  (10-15%)
+Kingfish:  ~1000 samples  (33%)
+Snapper:   ~1000 samples  (33%)
+Cod:       ~1000 samples  (33%)
+Empty:     0 samples     (0%)  ← Easy mode has no empty frames
+```
+
+**Expected Class Distribution (Medium/Hard, 3000 frames):**
+```
+Kingfish:  ~750 samples   (25%)
+Snapper:   ~750 samples   (25%)
+Cod:       ~750 samples   (25%)
+Empty:     ~450 samples   (15%)  ← Auto-generated
 ```
 
 ### Acoustic Data Format
