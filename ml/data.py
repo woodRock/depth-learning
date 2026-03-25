@@ -60,23 +60,28 @@ def create_visual_transform(aug_config: AugmentationConfig) -> transforms.Compos
 
 class FishDataset(Dataset):
     """Dataset for fish classification with visual and acoustic modalities."""
-    
+
     SPECIES_MAP: Dict[str, int] = {"Kingfish": 0, "Snapper": 1, "Cod": 2, "Empty": 3}
-    
+    NUM_CLASSES = 4
+
     def __init__(
         self,
         data_dir: str,
         transform: Optional[Callable] = None,
         mode: str = "train",
         seed: int = 42,
+        multi_label: bool = False,  # New: support multi-label format
+        task: str = "presence",  # "presence" or "counting"
     ):
         self.data_dir = Path(data_dir)
         self.mode = mode
         self.transform = transform
         self.seed = seed
-        
+        self.multi_label = multi_label  # True for presence/absence detection
+        self.task = task  # "presence" or "counting"
+
         self.visual_files = self._load_valid_samples()
-        
+
         # Only balance if specifically requested (usually for training)
         if mode == "train":
             self.visual_files = self._balance_classes()
@@ -85,14 +90,15 @@ class FishDataset(Dataset):
         """Load all valid samples with complete modalities."""
         all_visuals = sorted(self.data_dir.glob("*_visual.png"))
         valid_samples = []
-        
+
         for v_path in all_visuals:
-            h_path = v_path.with_name(v_path.name.replace("_visual.png", "_history.bin"))
+            # Check for _acoustic.png instead of _history.bin
+            acoustic_path = v_path.with_name(v_path.name.replace("_visual.png", "_acoustic.png"))
             m_path = v_path.with_name(v_path.name.replace("_visual.png", "_meta.json"))
-            
-            if h_path.exists() and m_path.exists():
+
+            if acoustic_path.exists() and m_path.exists():
                 valid_samples.append(v_path)
-        
+
         return valid_samples
     
     def _balance_classes(self) -> List[Path]:
@@ -132,38 +138,101 @@ class FishDataset(Dataset):
     
     def __getitem__(self, idx: int) -> tuple:
         vis_path = self.visual_files[idx]
-        history_path = vis_path.with_name(vis_path.name.replace("_visual.png", "_history.bin"))
+        # Load from _acoustic.png instead of _history.bin to match inference pipeline
+        acoustic_path = vis_path.with_name(vis_path.name.replace("_visual.png", "_acoustic.png"))
         meta_path = vis_path.with_name(vis_path.name.replace("_visual.png", "_meta.json"))
-        
+
         # Load visual image
         vis_img = Image.open(vis_path).convert("RGB")
-        
-        # Load acoustic history
-        data = self._load_acoustic_data(history_path)
-        
+
+        # Load acoustic history from echogram PNG
+        data = self._load_acoustic_data(acoustic_path)
+
         # Apply acoustic augmentation during training
         if self.mode == "train":
             data = self._apply_acoustic_augmentation(data)
-        
+
         history_tensor = torch.from_numpy(data.flatten()).float()
-        
+
         # Load label
         with open(meta_path, "r") as f:
             meta = json.load(f)
-            label = self.SPECIES_MAP.get(meta["dominant_species"], 3)
-        
+            
+            # Counting task: read species counts
+            if self.task == "counting":
+                if "species_counts" in meta:
+                    # New format with counts
+                    counts = meta["species_counts"]
+                    count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                    for species_name, count in counts.items():
+                        label_idx = self.SPECIES_MAP.get(species_name, 3)
+                        count_tensor[label_idx] = float(count)
+                    label_tensor = count_tensor
+                else:
+                    # Fallback: use presence as proxy for count
+                    if "species_present" in meta:
+                        species_present = meta["species_present"]
+                        count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                        for species_name in species_present:
+                            label_idx = self.SPECIES_MAP.get(species_name, 3)
+                            count_tensor[label_idx] = 1.0
+                        label_tensor = count_tensor
+                    else:
+                        # Legacy: single species = 1
+                        label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
+                        count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                        count_tensor[label] = 1.0
+                        label_tensor = count_tensor
+            
+            # Presence/absence task: read species present
+            elif "species_present" in meta:
+                # New multi-label format
+                species_present = meta["species_present"]
+                multi_hot = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                for species_name in species_present:
+                    label = self.SPECIES_MAP.get(species_name, 3)
+                    multi_hot[label] = 1.0
+                label_tensor = multi_hot
+            else:
+                # Legacy single-label format (backward compatibility)
+                label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
+                if self.multi_label:
+                    multi_hot = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                    multi_hot[label] = 1.0
+                    label_tensor = multi_hot
+                else:
+                    label_tensor = torch.tensor(label, dtype=torch.long)
+
         # Apply visual transform
         if self.transform:
             vis_img = self.transform(vis_img)
-        
-        return vis_img, history_tensor, label
+
+        return vis_img, history_tensor, label_tensor
     
     def _load_acoustic_data(self, path: Path) -> np.ndarray:
-        """Load and preprocess acoustic data from binary file."""
-        with open(path, "rb") as f:
-            raw_data = np.frombuffer(f.read(), dtype=np.uint8).copy()
-            expected = 32 * 256 * 3
-            data = raw_data[:expected].reshape(32, 256, 3).astype(np.float32) / 255.0
+        """Load and preprocess acoustic data from echogram PNG image.
+        
+        This matches the inference pipeline which sends rendered echogram images.
+        The echogram PNG is (256 height, 512 width, 3 channels) where:
+        - Height = depth bins (256)
+        - Width = pings (512, we take last 32 columns = most recent pings)
+        - Channels = RGB (representing 3 frequencies)
+        
+        Returns: (32, 256, 3) array normalized to [0, 1]
+        """
+        from PIL import Image
+        
+        # Load echogram PNG
+        img = Image.open(path).convert('RGB')
+        img_np = np.array(img)  # (256, 512, 3)
+        
+        # Extract last 32 pings (rightmost columns)
+        # Shape: (256 depth, 32 pings, 3 channels)
+        last_32_pings = img_np[:, -32:, :]
+        
+        # Transpose to match training format: (32 pings, 256 depth, 3 channels)
+        data = last_32_pings.transpose(1, 0, 2).astype(np.float32) / 255.0
+        
         return data
 
     def _apply_acoustic_augmentation(self, data: np.ndarray) -> np.ndarray:

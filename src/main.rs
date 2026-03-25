@@ -112,6 +112,10 @@ struct InferenceResult {
     pub total_count: u32,
     pub per_class_correct: std::collections::HashMap<String, u32>,  // Per-class accuracy tracking
     pub per_class_total: std::collections::HashMap<String, u32>,
+    pub species_in_beam: Vec<String>,  // All species currently in transducer beam (for multi-label)
+    pub species_counts: std::collections::HashMap<String, u32>,  // Count per species (for counting task)
+    pub is_multilabel: bool,  // Track if using multi-label predictions
+    pub task: String,  // Task type: "presence" or "counting"
     pub timer: Timer,
 }
 
@@ -124,6 +128,10 @@ impl Default for InferenceResult {
             total_count: 0,
             per_class_correct: std::collections::HashMap::new(),
             per_class_total: std::collections::HashMap::new(),
+            species_in_beam: Vec::new(),
+            species_counts: std::collections::HashMap::new(),
+            is_multilabel: true,  // Default to multi-label (presence/absence)
+            task: "presence".to_string(),  // Default task
             timer: Timer::from_seconds(0.5, TimerMode::Repeating),
         }
     }
@@ -227,7 +235,9 @@ struct Transducer;
 #[derive(serde::Deserialize)]
 struct PredictionResponse {
     pub predictions: Vec<(String, f32)>,
-    pub generated_image: String, 
+    pub generated_image: String,
+    pub is_multilabel: bool,  // true = presence/absence or counting, false = majority class
+    pub task: String,  // "presence" or "counting"
 }
 
 #[derive(Resource)]
@@ -695,28 +705,87 @@ fn ui_tiled_windows_system(
                             ui.add_space(5.0);
 
                             ui.label("Model Prediction Confidence:");
+                            
+                            // Display task type
+                            if inference.task == "counting" {
+                                ui.label(egui::RichText::new("(Fish Counting - estimated counts per species)").small());
+                            } else if inference.is_multilabel {
+                                ui.label(egui::RichText::new("(Presence/Absence Detection - threshold: 0.5)").small());
+                            } else {
+                                ui.label(egui::RichText::new("(Majority Class Prediction)").small());
+                            }
+                            
                             if inference.predictions.is_empty() {
                                 ui.label("Searching for inference server...");
-                            } else {
-                                let top_gt = inference.ground_truth_dist.first().map(|x| &x.0);
-                                for (species, score) in &inference.predictions {
-                                    let is_dominant = top_gt == Some(species);
+                            } else if inference.task == "counting" {
+                                // COUNTING TASK: Show estimated counts (tanh-scaled to 0-20)
+                                ui.add_space(5.0);
+                                for (species, count) in &inference.predictions {
+                                    // Clip to 0-20 range (model output range)
+                                    let count_clipped = count.clamp(0.0, 20.0);
+                                    let actual_count = inference.species_counts.get(species).copied().unwrap_or(0);
+                                    let count_rounded = count_clipped.round() as u32;
+                                    let is_accurate = (count_rounded as i32 - actual_count as i32).abs() <= 1;
+                                    
                                     ui.horizontal(|ui| {
                                         ui.add_space(20.0);
                                         ui.label(format!("{:<10}", species));
-                                        let color = if is_dominant {
-                                            egui::Color32::from_rgb(0, 255, 100)
+                                        
+                                        let color = if is_accurate {
+                                            egui::Color32::from_rgb(0, 255, 100)  // Green = accurate
+                                        } else {
+                                            egui::Color32::YELLOW  // Yellow = off by >1
+                                        };
+                                        
+                                        ui.label(format!("Est: {:>2}  Actual: {:>2}", count_rounded, actual_count));
+                                        
+                                        if is_accurate {
+                                            ui.label("\u{2713}");  // Checkmark
+                                        } else {
+                                            ui.label(format!("(diff: {})", (count_rounded as i32 - actual_count as i32).abs()));
+                                        }
+                                    });
+                                }
+                            } else {
+                                // PRESENCE/ABSENCE or SINGLE-LABEL: Show probabilities
+                                let top_gt = inference.ground_truth_dist.first().map(|x| &x.0);
+                                for (species, score) in &inference.predictions {
+                                    let is_dominant = !inference.is_multilabel && top_gt == Some(species);
+                                    let is_present = inference.is_multilabel && *score > 0.5;
+
+                                    ui.horizontal(|ui| {
+                                        ui.add_space(20.0);
+                                        ui.label(format!("{:<10}", species));
+
+                                        // Color based on prediction status
+                                        let color = if is_present || is_dominant {
+                                            egui::Color32::from_rgb(0, 255, 100)  // Green = present/correct
+                                        } else if inference.is_multilabel && *score > 0.3 {
+                                            egui::Color32::from_rgb(255, 200, 0)  // Yellow = possible
                                         } else {
                                             egui::Color32::WHITE
                                         };
+
+                                        // For multi-label: show raw probability (0-1 scale)
+                                        // For single-label: show normalized (-1 to 1 mapped to 0-1)
+                                        let progress = if inference.is_multilabel {
+                                            *score
+                                        } else {
+                                            (score + 1.0) / 2.0
+                                        };
+
                                         ui.add(
-                                            egui::ProgressBar::new((score + 1.0) / 2.0)
+                                            egui::ProgressBar::new(progress)
                                                 .text(format!("{:.2}", score))
                                                 .fill(color)
                                                 .desired_width(150.0),
-                                        ); 
-                                        if is_dominant {
-                                            ui.label("\u{1f3af}");
+                                        );
+
+                                        // Show indicator icons
+                                        if is_present {
+                                            ui.label("\u{2713}");  // Checkmark for present
+                                        } else if is_dominant {
+                                            ui.label("\u{1f3af}");  // Bullseye for correct
                                         }
                                     });
                                 }
@@ -851,18 +920,35 @@ fn model_inference_system(
 ) {
     while let Ok(resp) = channels.rx_preds.try_recv() {
         inference.predictions = resp.predictions.clone();
+        inference.is_multilabel = resp.is_multilabel;  // Track prediction mode
+        inference.task = resp.task.clone();  // Track task type
 
+        // For multi-label: check if any species has probability > 0.5
+        // For single-label: check if top prediction matches ground truth
         if let Some((top_gt, _)) = inference.ground_truth_dist.first() {
             let top_gt_name = top_gt.clone();
-            if let Some((top_pred, _)) = resp.predictions.first() {
-                inference.total_count += 1;
-                
-                // Track per-class accuracy
-                *inference.per_class_total.entry(top_gt_name.clone()).or_insert(0) += 1;
-                
-                if top_pred == &top_gt_name {
-                    inference.correct_count += 1;
-                    *inference.per_class_correct.entry(top_gt_name.clone()).or_insert(0) += 1;
+            inference.total_count += 1;
+
+            if resp.is_multilabel && resp.task == "presence" {
+                // Multi-label presence/absence: species is "correct" if predicted probability > 0.5
+                for (species, score) in &resp.predictions {
+                    if species == &top_gt_name {
+                        *inference.per_class_total.entry(species.clone()).or_insert(0) += 1;
+                        if *score > 0.5 {
+                            inference.correct_count += 1;
+                            *inference.per_class_correct.entry(species.clone()).or_insert(0) += 1;
+                        }
+                        break;
+                    }
+                }
+            } else {
+                // Single-label: check if top prediction matches
+                if let Some((top_pred, _)) = resp.predictions.first() {
+                    *inference.per_class_total.entry(top_gt_name.clone()).or_insert(0) += 1;
+                    if top_pred == &top_gt_name {
+                        inference.correct_count += 1;
+                        *inference.per_class_correct.entry(top_gt_name.clone()).or_insert(0) += 1;
+                    }
                 }
             }
         }
@@ -913,7 +999,20 @@ fn model_inference_system(
         }
         gt_dist.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     }
-    inference.ground_truth_dist = gt_dist;
+    inference.ground_truth_dist = gt_dist.clone();  // Clone to use later
+    
+    // Store all species in beam for multi-label dataset export
+    inference.species_in_beam = gt_dist.iter()
+        .map(|(name, _)| name.clone())
+        .collect();
+    
+    // Store species counts for counting task
+    inference.species_counts = gt_dist.iter()
+        .map(|(name, proportion)| {
+            let count = (proportion * total_fish_in_beam as f32).round() as u32;
+            (name.clone(), count)
+        })
+        .collect();
 
     let Some(img) = images.get(&ui_state.echogram_texture) else {
         return;
@@ -1062,6 +1161,12 @@ fn dataset_exporter_system(
 
             let top_species = inference.ground_truth_dist.first().map(|(s, _)| s.clone());
 
+            // Get ALL species present in the beam (for multi-label training)
+            let all_species = inference.species_in_beam.clone();
+            
+            // Get species counts (for counting task)
+            let species_counts = inference.species_counts.clone();
+
             // Track statistics
             if let Some(species) = &top_species {
                 *stats.samples_per_species.entry(species.clone()).or_insert(0) += 1;
@@ -1074,6 +1179,7 @@ fn dataset_exporter_system(
                 for (species, count) in &stats.samples_per_species {
                     info!("   {}: {} frames", species, count);
                 }
+                info!("   Multi-label: {} frames with multiple species", stats.samples_per_species.len());
                 stats.last_print_time = 0.0;
             }
 
@@ -1086,11 +1192,40 @@ fn dataset_exporter_system(
                     let path = format!("{}/frame_{:04}_history.bin", export_path, frame);
                     let _ = std::fs::write(path, full_history);
                 }
-                if let Some(species) = top_species {
-                    let path = format!("{}/frame_{:04}_meta.json", export_path, frame);
-                    let meta = format!(r#"{{"dominant_species": "{}"}}"#, species);
-                    let _ = std::fs::write(path, meta);
-                }
+
+                // Save metadata with multi-label and counting information
+                let path = format!("{}/frame_{:04}_meta.json", export_path, frame);
+                
+                // Build species_counts JSON object
+                let counts_obj = if species_counts.is_empty() {
+                    r#"{"Kingfish": 0, "Snapper": 0, "Cod": 0, "Empty": 0}"#.to_string()
+                } else {
+                    let pairs: Vec<String> = species_counts.iter()
+                        .map(|(k, v)| format!("\"{}\": {}", k, v))
+                        .collect();
+                    format!("{{{}}}", pairs.join(", "))
+                };
+                
+                // Build species_present array
+                let species_array: Vec<String> = all_species.iter()
+                    .map(|s| format!("\"{}\"", s))
+                    .collect();
+                
+                let meta = if all_species.is_empty() {
+                    // Empty frame
+                    format!(
+                        r#"{{"dominant_species": "Empty", "species_present": ["Empty"], "species_counts": {}}}"#,
+                        counts_obj
+                    )
+                } else {
+                    format!(
+                        r#"{{"dominant_species": {}, "species_present": [{}], "species_counts": {}}}"#,
+                        top_species.map(|s| format!("\"{}\"", s)).unwrap_or("\"Empty\"".to_string()),
+                        species_array.join(", "),
+                        counts_obj
+                    )
+                };
+                let _ = std::fs::write(path, meta);
             });
 
             info!("Queued export for frame {} to '{}' (Acoustic + History)", frame, difficulty_folder);

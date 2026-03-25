@@ -29,7 +29,11 @@
       "Bash(done)",
       "Bash(git reset *)",
       "Bash(git checkout *)",
-      "Bash(cargo build *)"
+      "Bash(cargo build *)",
+      "Bash(file *)",
+      "Bash(identify *)",
+      "Bash(git show *)",
+      "Bash(cargo check *)"
     ]
   },
   "$version": 3

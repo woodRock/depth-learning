@@ -1,1 +1,23 @@
-{"model_type": "lewm", "config": {"model_type": "lewm", "embed_dim": 256, "epochs": 100, "batch_size": 32, "learning_rate": 0.0003, "weight_decay": 0.05, "dataset": "easy", "n_chunks": 10, "with_aug": true, "light_aug": false, "rotation_degrees": 30, "label_smoothing": 0.1, "use_focal_loss": true, "sigreg_weight": 0.1, "wandb_entity": "victoria-university-of-wellington", "wandb_project": "depth-learning", "weights_dir": "weights"}}
+{
+  "model_type": "lewm",
+  "config": {
+    "model_type": "lewm",
+    "embed_dim": 256,
+    "epochs": 100,
+    "batch_size": 32,
+    "learning_rate": 0.0003,
+    "weight_decay": 0.05,
+    "dataset": "easy",
+    "n_chunks": 10,
+    "with_aug": false,
+    "light_aug": false,
+    "rotation_degrees": 30,
+    "label_smoothing": 0.1,
+    "use_focal_loss": true,
+    "sigreg_weight": 0.1,
+    "wandb_entity": "victoria-university-of-wellington",
+    "wandb_project": "depth-learning",
+    "weights_dir": "weights"
+  },
+  "task": "counting"
+}
