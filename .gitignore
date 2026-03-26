@@ -1,5 +1,19 @@
+# Rust
 /target
 .env
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 
 # Model weights
 ml/weights/*.pth
@@ -9,16 +23,38 @@ ml/weights/*.onnx
 
 # WandB logs
 ml/wandb/
+wandb/
 
 # Python artifacts
 ml/__pycache__/
 ml/*.pyc
 ml/venv/
 ml/.venv/
+*.egg-info/
+.eggs/
+
+# Qwen settings
+.qwen/
+
+# GitHub workflows (keep ci.yml, ignore local test files)
+.github/workflows/*.local
+.github/workflows/*.test
+
+# Linter cache
+.ruff_cache/
 
 # Dataset (generated data)
 dataset/*.png
 dataset/*.bin
 dataset/*.json
 !dataset/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 
