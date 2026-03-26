@@ -23,7 +23,7 @@ class FocalLoss(nn.Module):
         return focal_loss
 
 class CrossModalJEPA(nn.Module):
-    def __init__(self, ac_encoder, embed_dim=256, use_focal_loss=True):
+    def __init__(self, ac_encoder, embed_dim=256, use_focal_loss=True, task: str = "presence"):
         super().__init__()
 
         # 1. Target Encoder (Visual)
@@ -51,26 +51,44 @@ class CrossModalJEPA(nn.Module):
             nn.Unflatten(1, (512, 7, 7))
         )
 
-        # 4. Enhanced Classifier Head with label smoothing support
-        self.classifier = nn.Sequential(
-            nn.Linear(embed_dim, 768),
-            nn.BatchNorm1d(768),
-            nn.GELU(),
-            nn.Dropout(0.4),
-            nn.Linear(768, 256),
-            nn.BatchNorm1d(256),
-            nn.GELU(),
-            nn.Dropout(0.3),
-            nn.Linear(256, 64),
-            nn.GELU(),
-            nn.Linear(64, 4)
-        )
-        
-        self.use_focal_loss = use_focal_loss
-        if use_focal_loss:
-            self.criterion_cls = FocalLoss(alpha=1.0, gamma=2.0)
+        # 4. Task-specific classifier head
+        self.task = task
+        if task == "presence":
+            # Multi-label: linear output for BCEWithLogitsLoss
+            self.classifier = nn.Sequential(
+                nn.Linear(embed_dim, 768),
+                nn.BatchNorm1d(768),
+                nn.GELU(),
+                nn.Dropout(0.4),
+                nn.Linear(768, 256),
+                nn.BatchNorm1d(256),
+                nn.GELU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, 64),
+                nn.GELU(),
+                nn.Linear(64, 4)  # 4 species, independent sigmoid
+            )
+            self.criterion_cls = nn.BCEWithLogitsLoss()
         else:
-            self.criterion_cls = nn.CrossEntropyLoss()
+            # Single-label classification (legacy)
+            self.classifier = nn.Sequential(
+                nn.Linear(embed_dim, 768),
+                nn.BatchNorm1d(768),
+                nn.GELU(),
+                nn.Dropout(0.4),
+                nn.Linear(768, 256),
+                nn.BatchNorm1d(256),
+                nn.GELU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, 64),
+                nn.GELU(),
+                nn.Linear(64, 4)
+            )
+            self.use_focal_loss = use_focal_loss
+            if use_focal_loss:
+                self.criterion_cls = FocalLoss(alpha=1.0, gamma=2.0)
+            else:
+                self.criterion_cls = nn.CrossEntropyLoss()
 
     def forward(self, vis, ac, labels=None):
         with torch.no_grad():
@@ -85,16 +103,21 @@ class CrossModalJEPA(nn.Module):
         return predicted_target, target_latent, species_logits
 
     def compute_loss(self, predicted_target, target_latent, species_logits, labels):
-        """Compute combined JEPA + classification loss with optional label smoothing."""
+        """Compute combined JEPA + classification loss with task-specific objective."""
         # JEPA loss: cosine similarity
         loss_jepa = (1.0 - F.cosine_similarity(predicted_target, target_latent, dim=-1)).mean()
-        
-        # Classification loss (focal or cross-entropy)
-        loss_cls = self.criterion_cls(species_logits, labels)
-        
+
+        # Task-specific classification loss
+        if self.task == "presence":
+            # Multi-label: BCE with logits (labels are multi-hot)
+            loss_cls = self.criterion_cls(species_logits, labels)
+        else:
+            # Single-label: focal or cross-entropy (labels are class indices)
+            loss_cls = self.criterion_cls(species_logits, labels)
+
         # Combined loss
         loss = loss_jepa + loss_cls
-        
+
         return loss, loss_jepa, loss_cls
 
     def forward_ac_to_vis_latent(self, ac):

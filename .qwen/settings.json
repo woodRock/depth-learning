@@ -33,7 +33,8 @@
       "Bash(file *)",
       "Bash(identify *)",
       "Bash(git show *)",
-      "Bash(cargo check *)"
+      "Bash(cargo check *)",
+      "Bash(cargo run *)"
     ]
   },
   "$version": 3

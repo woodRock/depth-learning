@@ -184,24 +184,26 @@ class FishDataset(Dataset):
                         count_tensor[label] = 1.0
                         label_tensor = count_tensor
             
-            # Presence/absence task: read species present
-            elif "species_present" in meta:
-                # New multi-label format
-                species_present = meta["species_present"]
-                multi_hot = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
-                for species_name in species_present:
-                    label = self.SPECIES_MAP.get(species_name, 3)
-                    multi_hot[label] = 1.0
-                label_tensor = multi_hot
-            else:
-                # Legacy single-label format (backward compatibility)
-                label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
-                if self.multi_label:
+            # Presence/absence task OR multi_label=True: read species present
+            elif self.task == "presence" or self.multi_label:
+                if "species_present" in meta:
+                    # New multi-label format
+                    species_present = meta["species_present"]
+                    multi_hot = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                    for species_name in species_present:
+                        label = self.SPECIES_MAP.get(species_name, 3)
+                        multi_hot[label] = 1.0
+                    label_tensor = multi_hot
+                else:
+                    # Legacy single-label format: convert to multi-hot
+                    label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
                     multi_hot = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
                     multi_hot[label] = 1.0
                     label_tensor = multi_hot
-                else:
-                    label_tensor = torch.tensor(label, dtype=torch.long)
+            else:
+                # Single-label classification (class indices)
+                label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
+                label_tensor = torch.tensor(label, dtype=torch.long)
 
         # Apply visual transform
         if self.transform:
@@ -239,47 +241,47 @@ class FishDataset(Dataset):
         """Apply acoustic data augmentation."""
         # Use a local RNG to avoid global state issues
         # But for training, we WANT variety, so we don't use a fixed seed here
-        
+
         # 1. Temporal Jitter
         shift = np.random.randint(-3, 4)
         data = np.roll(data, shift, axis=0)
-        
-        # 2. Spatial Flip
+
+        # 2. Spatial Flip (depth flip - makes model depth-invariant!)
         if np.random.random() > 0.5:
             data = np.flip(data, axis=1).copy()
-        
+
         # 3. Channel Gain Variation
         gain = 1.0 + (np.random.rand(3) - 0.5) * 0.15
         data = (data * gain).clip(0, 1)
-        
+
         # 4. Speckle Noise
         noise_scale = np.random.uniform(0.01, 0.04)
         noise = np.random.normal(0, noise_scale, data.shape)
         data = (data + noise).clip(0, 1)
-        
+
         # 5. Ping Dropping
         drop_count = np.random.randint(0, 5)
         if drop_count > 0:
             indices = np.random.choice(32, drop_count, replace=False)
             data[indices, :, :] = 0.0
-        
+
         # 6. Temporal Masking
         if np.random.random() > 0.6:
             mask_start = np.random.randint(0, 28)
             mask_len = np.random.randint(2, 5)
             data[mask_start:mask_start + mask_len, :, :] = 0.0
-        
-        # 7. Depth-dependent noise
+
+        # 7. Depth-dependent noise (REDUCED to prevent depth memorization)
         depth_gradient = np.linspace(0.5, 1.5, 256).reshape(1, -1, 1)
         depth_noise = np.random.normal(0, 0.02, data.shape) * depth_gradient
         data = (data + depth_noise).clip(0, 1)
-        
+
         # 8. Random occlusion
         if np.random.random() > 0.7:
             occlude_depth = np.random.randint(50, 200)
             occlude_height = np.random.randint(10, 30)
             data[occlude_depth:occlude_depth + occlude_height, :, :] *= 0.3
-        
+
         # 9. Direction-aware mixing
         if np.random.random() > 0.5:
             if np.random.random() > 0.5:
@@ -292,6 +294,16 @@ class FishDataset(Dataset):
                     if pad_count > 0:
                         data = np.pad(data, ((0, pad_count), (0, 0), (0, 0)), mode='edge')
         
+        # 10. Random depth shift (prevents depth memorization!)
+        if np.random.random() > 0.5:
+            depth_shift = np.random.randint(-30, 31)  # Shift up to 30 depth bins
+            data = np.roll(data, depth_shift, axis=1)
+            # Zero out the rolled edges
+            if depth_shift > 0:
+                data[:, :depth_shift, :] = 0
+            elif depth_shift < 0:
+                data[:, depth_shift:, :] = 0
+
         return data
 
 

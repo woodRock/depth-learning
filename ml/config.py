@@ -8,37 +8,37 @@ import argparse
 @dataclass
 class TrainingConfig:
     """Base configuration for all training pipelines."""
-    
+
     # Model settings
     model_type: str = "transformer"
     embed_dim: int = 256
-    
+
     # Training settings
     epochs: int = 80
     batch_size: int = 32
     learning_rate: float = 3e-4
     weight_decay: float = 0.05
-    
+
     # Dataset settings
-    dataset: Literal["easy", "medium", "hard"] = "easy"
+    dataset: Literal["easy", "medium", "hard", "extreme"] = "easy"
     n_chunks: int = 10
-    
+
     # Augmentation settings
     with_aug: bool = False
     light_aug: bool = False
     rotation_degrees: int = 30
-    
+
     # Loss settings
     label_smoothing: float = 0.1
     use_focal_loss: bool = True
-    
+
     # LeWM specific
     sigreg_weight: float = 0.1
-    
+
     # Logging
     wandb_entity: str = "victoria-university-of-wellington"
     wandb_project: str = "depth-learning"
-    
+
     # Paths
     weights_dir: str = "weights"
     
@@ -122,10 +122,10 @@ class MAEConfig:
 def add_common_args(parser: argparse.ArgumentParser) -> None:
     """Add common arguments to argument parser."""
     parser.add_argument(
-        "--dataset", 
-        type=str, 
-        default="easy", 
-        choices=["easy", "medium", "hard"],
+        "--dataset",
+        type=str,
+        default="easy",
+        choices=["easy", "medium", "hard", "extreme"],
         help="Dataset difficulty level (default: easy)"
     )
     parser.add_argument(

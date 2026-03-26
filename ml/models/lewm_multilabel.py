@@ -219,11 +219,12 @@ class LeWorldModelMultiLabel(nn.Module):
         # 3. Task-specific classification/counting loss
         if species_logits is not None and labels is not None:
             if self.task == "counting":
-                # Counting: MSE with soft clipping via sigmoid scaling
-                # Scale outputs to reasonable range using tanh
-                scaled_logits = torch.tanh(species_logits / 10.0) * 20.0  # Soft cap at ~20
-                labels_clamped = labels.clamp(min=0, max=20)  # Clip targets too
-                cls_loss = F.mse_loss(scaled_logits, labels_clamped)
+                # Counting: MSE with soft clipping via tanh scaling
+                # Scale outputs to reasonable range: tanh(x/5) * 30 → soft cap at ~30
+                scaled_logits = torch.tanh(species_logits / 5.0) * 30.0
+                # Don't clip targets too hard - let model learn the distribution
+                labels_soft = labels.clamp(min=0)  # Only ensure non-negative
+                cls_loss = F.mse_loss(scaled_logits, labels_soft)
             else:
                 # Presence/absence: BCE with logits
                 if pos_weight is not None:

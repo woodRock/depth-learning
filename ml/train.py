@@ -55,12 +55,13 @@ def train_jepa(args: argparse.Namespace) -> None:
     """Train JEPA model (Joint Embedding Predictive Architecture)."""
     config = TrainingConfig.from_args(args)
     device = _get_device()
-    
+
     print(f"--- Starting JEPA Training ({config.model_type.upper()}) on {device} ---")
+    print(f"--- Task: {args.task.upper()} ---")
     print(f"--- Dataset: {config.dataset} | Augmentation: {'enabled' if config.with_aug else 'disabled'} ---")
-    
-    setup_wandb(config, job_type=f"jepa-{config.model_type}")
-    
+
+    setup_wandb(config, job_type=f"jepa-{config.model_type}-{args.task}")
+
     # Create data loaders
     aug_config = AugmentationConfig(
         enabled=config.with_aug,
@@ -70,17 +71,26 @@ def train_jepa(args: argparse.Namespace) -> None:
     transform = create_visual_transform(aug_config)
     dataset_path = _get_dataset_path(config.dataset)
 
-    from data import create_data_loaders
-    train_loader, val_loader = create_data_loaders(
-        dataset_path=dataset_path,
-        transform=transform,
-        batch_size=config.batch_size,
-        n_chunks=config.n_chunks,
-    )
+    from data import create_data_loaders, FishDataset
+    from torch.utils.data import Subset
     
+    # Create dataset with task-specific labels
+    multi_label = (args.task == "presence")
+    full_dataset = FishDataset(dataset_path, transform=transform, mode="train", multi_label=multi_label, task=args.task)
+    
+    # Split into train/val
+    from data import create_stratified_split
+    train_indices, val_indices = create_stratified_split(full_dataset)
+    
+    train_ds = Subset(full_dataset, train_indices)
+    val_ds = Subset(FishDataset(dataset_path, transform=transform, mode="val", multi_label=multi_label, task=args.task), val_indices)
+    
+    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.batch_size, shuffle=True, drop_last=True)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
+
     # Get trainer and train
     trainer = get_trainer(config, device)
-    trainer.model = trainer.build_model()
+    trainer.model = trainer.build_model(task=args.task)
     trainer.optimizer = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, trainer.model.parameters()),
         lr=config.learning_rate,
@@ -89,7 +99,7 @@ def train_jepa(args: argparse.Namespace) -> None:
     trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         trainer.optimizer, T_max=config.epochs
     )
-    
+
     trainer.train(train_loader, val_loader)
     wandb.finish()
 
@@ -272,8 +282,8 @@ def main() -> None:
     # JEPA parser
     jepa_parser = subparsers.add_parser("jepa", help="Train JEPA model")
     jepa_parser.add_argument(
-        "--model", 
-        type=str, 
+        "--model",
+        type=str,
         default="transformer",
         choices=["conv", "transformer", "lstm", "ast"],
         help="Acoustic encoder type (default: transformer)"
@@ -284,11 +294,14 @@ def main() -> None:
     jepa_parser.add_argument("--weight-decay", type=float, default=0.05)
     jepa_parser.add_argument("--label-smoothing", type=float, default=0.1)
     jepa_parser.add_argument("--use-focal-loss", action="store_true", default=True)
+    jepa_parser.add_argument("--task", type=str, default="presence", choices=["presence", "single_label"],
+                            help="Task type: presence (multi-label) or single_label (default: presence)")
     jepa_parser.add_argument("--rotation-degrees", type=int, default=30)
     jepa_parser.add_argument("--n-chunks", type=int, default=10)
     jepa_parser.add_argument("--sigreg-weight", type=float, default=0.1)
+    # --with-aug is in add_common_args, just set default to True
     add_common_args(jepa_parser)
-    jepa_parser.set_defaults(func=train_jepa)
+    jepa_parser.set_defaults(func=train_jepa, with_aug=True)  # Enable aug by default for JEPA
     
     # LeWM parser (multi-label presence/absence detection or counting)
     lewm_parser = subparsers.add_parser("lewm", help="Train LeWorldModel with multi-label tasks")

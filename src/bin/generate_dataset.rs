@@ -1,12 +1,22 @@
 //! Headless High-Fidelity Dataset Generator for DeepFish
-//! 
+//!
 //! This generator is a bit-for-bit logical clone of the Bevy simulation.
-//! It uses the exact same Boid steering, Acoustic interference, and 
+//! It uses the exact same Boid steering, Acoustic interference, and
 //! Orthographic projection logic as main.rs, but runs 100x faster.
 //!
 //! Usage:
 //! ```bash
-//! cargo run --bin generate_dataset -- --output dataset/easy --samples 333
+//! # Generate easy dataset (default)
+//! cargo run --bin generate_dataset -- --output dataset/easy --samples 1000
+//!
+//! # Generate medium dataset (school independence, some heading changes)
+//! cargo run --bin generate_dataset -- --output dataset/medium --samples 1000 --difficulty medium
+//!
+//! # Generate hard dataset (full independence, frequent heading changes)
+//! cargo run --bin generate_dataset -- --output dataset/hard --samples 1000 --difficulty hard
+//!
+//! # Generate EXTREME dataset (depth randomization - breaks depth shortcuts!)
+//! cargo run --bin generate_dataset -- --output dataset/extreme --samples 1000 --difficulty extreme
 //! ```
 
 use bevy::math::prelude::*;
@@ -145,6 +155,7 @@ enum Difficulty {
     Easy,
     Medium,
     Hard,
+    Extreme,  // NEW: Depth randomization
 }
 
 struct HeadlessSim {
@@ -186,8 +197,8 @@ impl HeadlessSim {
                     let angle = rng.gen_range(-15.0..15.0f32).to_radians();
                     Vec3::new(angle.cos(), 0.0, angle.sin())
                 },
-                Difficulty::Medium | Difficulty::Hard => {
-                    // Medium/Hard: Completely random horizontal direction
+                Difficulty::Medium | Difficulty::Hard | Difficulty::Extreme => {
+                    // Medium/Hard/Extreme: Completely random horizontal direction
                     let angle = rng.gen_range(0.0..360.0f32).to_radians();
                     Vec3::new(angle.cos(), 0.0, angle.sin())
                 }
@@ -195,12 +206,20 @@ impl HeadlessSim {
             
             for _ in 0..fish_per_school {
                 let (min_y, max_y) = species.preferred_depth_range();
-                
+
                 // Add some variety to depth range per school
                 let depth_offset = rng.gen_range(-0.5..0.5);
+                
+                // Extreme mode: randomize depth across full water column
+                let actual_y = if matches!(difficulty, Difficulty::Extreme) {
+                    rng.gen_range(0.5..TANK_SIZE.y - 0.5) - TANK_SIZE.y / 2.0
+                } else {
+                    rng.gen_range(min_y..max_y) + depth_offset - TANK_SIZE.y / 2.0
+                };
+                
                 let pos = Vec3::new(
                     rng.gen_range(-TANK_SIZE.x / 2.0..TANK_SIZE.x / 2.0),
-                    rng.gen_range(min_y..max_y) + depth_offset - TANK_SIZE.y / 2.0,
+                    actual_y,
                     rng.gen_range(-TANK_SIZE.z / 2.0..TANK_SIZE.z / 2.0),
                 );
                 
@@ -233,6 +252,7 @@ impl HeadlessSim {
             Difficulty::Easy => (0.5, 0.3, 0.2),
             Difficulty::Medium => (0.15, 0.8, 0.5),
             Difficulty::Hard => (0.08, 1.5, 1.0),
+            Difficulty::Extreme => (0.05, 2.0, 1.2),  // Even more chaotic
         };
 
         for i in 0..self.boids.len() {
@@ -456,30 +476,73 @@ fn main() {
     let mut output_dir = "dataset/easy".to_string();
     let mut samples_per_species = 333;
     let mut difficulty = Difficulty::Easy;
+    let mut show_help = false;
 
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
+            "--help" | "-h" => { show_help = true; }
             "--output" | "-o" => { i += 1; if i < args.len() { output_dir = args[i].clone(); } }
             "--samples" | "-n" => { i += 1; if i < args.len() { samples_per_species = args[i].parse().unwrap_or(333); } }
-            "--difficulty" | "-d" => { 
-                i += 1; 
-                if i < args.len() { 
+            "--difficulty" | "-d" => {
+                i += 1;
+                if i < args.len() {
                     difficulty = match args[i].to_lowercase().as_str() {
                         "easy" => Difficulty::Easy,
                         "medium" => Difficulty::Medium,
                         "hard" => Difficulty::Hard,
+                        "extreme" => Difficulty::Extreme,
                         _ => Difficulty::Easy,
                     };
-                } 
+                }
             }
             _ => {}
         }
         i += 1;
     }
 
+    if show_help {
+        println!("🐟 DeepFish Bit-Fidelity Dataset Generator");
+        println!();
+        println!("USAGE:");
+        println!("    cargo run --bin generate_dataset -- [OPTIONS]");
+        println!();
+        println!("OPTIONS:");
+        println!("    -h, --help                    Show this help message");
+        println!("    -o, --output <DIR>            Output directory (default: dataset/easy)");
+        println!("    -n, --samples <N>             Samples per species (default: 333)");
+        println!("    -d, --difficulty <LEVEL>      Difficulty level: easy, medium, hard, extreme (default: easy)");
+        println!();
+        println!("DIFFICULTY LEVELS:");
+        println!("    easy      - All fish swim east in parallel, no heading changes");
+        println!("    medium    - Schools have independent directions, heading changes every ~90s");
+        println!("    hard      - Full flocking behavior, heading changes every ~30s");
+        println!("    extreme   - DEPTH RANDOMIZATION + chaotic swimming (breaks depth shortcuts!)");
+        println!();
+        println!("EXAMPLES:");
+        println!("    # Generate easy dataset (1000 samples per species)");
+        println!("    cargo run --bin generate_dataset -- -o dataset/easy -n 1000");
+        println!();
+        println!("    # Generate medium dataset");
+        println!("    cargo run --bin generate_dataset -- -o dataset/medium -n 1000 -d medium");
+        println!();
+        println!("    # Generate hard dataset");
+        println!("    cargo run --bin generate_dataset -- -o dataset/hard -n 1000 -d hard");
+        println!();
+        println!("    # Generate EXTREME dataset (depth randomization!)");
+        println!("    cargo run --bin generate_dataset -- -o dataset/extreme -n 1000 -d extreme");
+        return;
+    }
+
     println!("🐟 DeepFish Bit-Fidelity Dataset Generator");
-    println!("   Difficulty: {:?}", difficulty);
+    println!("   Difficulty: {:?} ({})", difficulty, match difficulty {
+        Difficulty::Easy => "All fish swim east, no heading changes",
+        Difficulty::Medium => "School independence, heading changes every ~90s",
+        Difficulty::Hard => "Full flocking, heading changes every ~30s",
+        Difficulty::Extreme => "DEPTH RANDOMIZATION + chaotic swimming!",
+    });
+    println!("   Output: {}", output_dir);
+    println!("   Samples per species: {}", samples_per_species);
     fs::create_dir_all(&output_dir).unwrap();
 
     let species_list = [Species::Kingfish, Species::Snapper, Species::Cod, Species::Empty];

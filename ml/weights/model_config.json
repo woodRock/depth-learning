@@ -7,9 +7,9 @@
     "batch_size": 32,
     "learning_rate": 0.0003,
     "weight_decay": 0.05,
-    "dataset": "easy",
+    "dataset": "extreme",
     "n_chunks": 10,
-    "with_aug": false,
+    "with_aug": true,
     "light_aug": false,
     "rotation_degrees": 30,
     "label_smoothing": 0.1,
@@ -19,5 +19,5 @@
     "wandb_project": "depth-learning",
     "weights_dir": "weights"
   },
-  "task": "counting"
+  "task": "presence"
 }
