@@ -229,10 +229,11 @@ async def predict(file: UploadFile = File(...)):
         if model_type == "lewm":
             # Check model task from model itself
             if hasattr(model, 'task') and model.task == "counting":
-                # Counting: model output is tanh-scaled (0-20 range)
+                # Counting: model output is tanh-scaled (0-30 range)
                 probs = species_logits.squeeze()
-                # Already bounded by tanh, just ensure non-negative
-                probs = probs.clamp(0, 20)
+                # Apply same tanh scaling as training
+                probs = torch.tanh(probs / 5.0) * 30.0
+                probs = probs.clamp(0, 30)
             else:
                 # Presence/absence: sigmoid for independent probabilities
                 probs = torch.sigmoid(species_logits).squeeze()

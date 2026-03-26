@@ -40,7 +40,7 @@ const TARGET_PER_SPECIES: usize = 500;  // Target frames per species
 // Difficulty modes
 #[derive(Resource, Default)]
 struct DifficultyMode {
-    current: usize,  // 0=Easy, 1=Medium, 2=Hard
+    current: usize,  // 0=Easy, 1=Medium, 2=Hard, 3=Extreme
     names: Vec<&'static str>,
 }
 
@@ -48,35 +48,48 @@ impl DifficultyMode {
     fn new() -> Self {
         Self {
             current: 0,  // Start on Easy (simplest behavior)
-            names: vec!["Easy", "Medium", "Hard"],
+            names: vec!["Easy", "Medium", "Hard", "Extreme"],
         }
     }
-    
+
     fn cycle(&mut self) {
         self.current = (self.current + 1) % self.names.len();
     }
-    
+
     fn name(&self) -> &'static str {
         self.names[self.current]
     }
-    
+
     // Easy: All fish swim same direction, no heading changes
     fn heading_change_interval(&self) -> f32 {
         match self.current {
             0 => f32::INFINITY,  // Easy: Never change
             1 => 90.0,           // Medium: Every 90s
             2 => 30.0,           // Hard: Every 30-90s
+            3 => 15.0,           // Extreme: Every 15s (very chaotic)
             _ => 60.0,
         }
     }
-    
+
     // Easy: All schools same direction, Medium: Some variation, Hard: Full independence
     fn school_independence(&self) -> f32 {
         match self.current {
             0 => 0.0,    // Easy: All same
             1 => 0.5,    // Medium: Some variation
             2 => 1.0,    // Hard: Full independence
+            3 => 1.5,    // Extreme: Even more independence
             _ => 1.0,
+        }
+    }
+    
+    // Depth randomization: whether fish ignore their preferred depth ranges
+    fn depth_randomization(&self) -> f32 {
+        match self.current {
+            0 => 0.0,    // Easy: Strict depth stratification
+            1 => 0.0,    // Medium: Strict depth stratification
+            2 => 0.0,    // Hard: Strict depth stratification
+            3 => 1.0,    // Extreme: Full depth randomization (breaks depth shortcut!)
+            _ => 0.0,
         }
     }
 }
@@ -479,10 +492,27 @@ fn setup_scene(
     let species_list = [Species::Kingfish, Species::Snapper, Species::Cod];
     for i in 0..SCHOOL_COUNT {
         let species = species_list[i % 3];  // Cycle through species
+        
+        // Extreme mode: randomize depth to break depth stratification shortcut
+        let depth_randomization = difficulty.depth_randomization();
         let (min_y, max_y) = species.preferred_depth_range();
+        
+        let actual_min_y = if depth_randomization > 0.0 && rng.gen_bool(depth_randomization as f64) {
+            // Extreme: ignore species depth preference, use full water column
+            0.5
+        } else {
+            min_y
+        };
+        let actual_max_y = if depth_randomization > 0.0 && rng.gen_bool(depth_randomization as f64) {
+            // Extreme: ignore species depth preference, use full water column
+            TANK_SIZE.y - 0.5
+        } else {
+            max_y
+        };
+        
         let center = Vec3::new(
             rng.gen_range(-TANK_SIZE.x / 2.0 + 2.0..TANK_SIZE.x / 2.0 - 2.0),
-            rng.gen_range(min_y..max_y) - TANK_SIZE.y / 2.0,
+            rng.gen_range(actual_min_y..actual_max_y) - TANK_SIZE.y / 2.0,
             rng.gen_range(-TANK_SIZE.z / 2.0 + 2.0..TANK_SIZE.z / 2.0 - 2.0),
         );
         school_centers.push((center, species));
@@ -493,14 +523,18 @@ fn setup_scene(
     let fish_per_school = FISH_COUNT / SCHOOL_COUNT;
 
     // Easy mode: All schools swim in the same direction
-    // Medium/Hard: Each school gets its own direction
+    // Medium/Hard/Extreme: Each school gets its own direction
     let all_same_direction = if difficulty.current == 0 {
         // Easy: One shared direction for all schools (swim east)
         let shared_dir = Vec3::new(1.0, 0.0, 0.0);
         info!("🎯 Easy Mode: All fish swimming east {:?}", shared_dir);
         Some(shared_dir)
     } else {
-        info!("🎯 {}/Hard Mode: Schools getting random directions", difficulty.name());
+        if difficulty.current == 3 {
+            info!("🎯 Extreme Mode: Depth randomization ON + chaotic swimming!");
+        } else {
+            info!("🎯 {}/Hard Mode: Schools getting random directions", difficulty.name());
+        }
         None
     };
 
@@ -718,11 +752,12 @@ fn ui_tiled_windows_system(
                             if inference.predictions.is_empty() {
                                 ui.label("Searching for inference server...");
                             } else if inference.task == "counting" {
-                                // COUNTING TASK: Show estimated counts (tanh-scaled to 0-20)
+                                // COUNTING TASK: Show estimated counts (tanh-scaled to 0-30)
                                 ui.add_space(5.0);
                                 for (species, count) in &inference.predictions {
-                                    // Clip to 0-20 range (model output range)
-                                    let count_clipped = count.clamp(0.0, 20.0);
+                                    // Apply tanh scaling to match training
+                                    let count_scaled = (count / 5.0).tanh() * 30.0;
+                                    let count_clipped = count_scaled.clamp(0.0, 30.0);
                                     let actual_count = inference.species_counts.get(species).copied().unwrap_or(0);
                                     let count_rounded = count_clipped.round() as u32;
                                     let is_accurate = (count_rounded as i32 - actual_count as i32).abs() <= 1;
@@ -1316,7 +1351,7 @@ fn boid_movement_system(
 ) {
     let dt = time.delta_secs();
     let t = time.elapsed_secs();
-    
+
     // Difficulty-aware steering parameters
     // Easy: Strong heading adherence, weak flocking
     // Hard: Weak heading adherence, strong flocking (more natural)
@@ -1324,8 +1359,12 @@ fn boid_movement_system(
         0 => (0.5, 0.3, 0.2),    // Easy: Strong heading, weak flocking
         1 => (0.15, 0.8, 0.5),   // Medium: Balanced
         2 => (0.08, 1.5, 1.0),   // Hard: Weak heading, strong flocking
+        3 => (0.05, 2.0, 1.2),   // Extreme: Chaotic + depth randomization
         _ => (0.08, 1.5, 1.0),
     };
+    
+    // Extreme mode: continuous depth randomization
+    let depth_randomization = difficulty.current == 3;
 
     let boid_data: Vec<(Vec3, Vec3, Species, u32)> = query
         .iter()
@@ -1387,6 +1426,21 @@ fn boid_movement_system(
         // School heading preference (strength depends on difficulty)
         let heading_preference = (boid.base_heading - boid.velocity.normalize_or_zero()) * heading_strength;
         acceleration += heading_preference * boid.max_speed;
+        
+        // Extreme mode: Add random vertical movement to break depth stratification
+        if depth_randomization {
+            let mut rng = rand::thread_rng();
+            // Random vertical acceleration (up or down)
+            let vertical_jitter = rng.gen_range(-0.5..0.5);
+            acceleration.y += vertical_jitter;
+            
+            // Clamp depth to tank bounds
+            let new_y = pos.y + boid.velocity.y * dt + 0.5 * acceleration.y * dt * dt;
+            if new_y < -TANK_SIZE.y/2.0 + 0.5 || new_y > TANK_SIZE.y/2.0 - 0.5 {
+                // Randomly teleport to another depth if hitting bounds
+                transform.translation.y = rng.gen_range(-TANK_SIZE.y/2.0 + 0.5..TANK_SIZE.y/2.0 - 0.5);
+            }
+        }
 
         let forward_drive = boid.velocity.normalize_or_zero() * 0.1;
         acceleration += forward_drive;
@@ -1673,10 +1727,23 @@ fn update_population_system(
 fn difficulty_mode_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut difficulty: ResMut<DifficultyMode>,
+    mut fish_query: Query<&mut Transform, With<Boid>>,
 ) {
     if keys.just_pressed(KeyCode::KeyM) {
+        let old_mode = difficulty.current;
         difficulty.cycle();
         println!("🎯 Difficulty changed to: {}", difficulty.name());
+        
+        // If switching to Extreme mode, randomize all fish depths immediately
+        if difficulty.current == 3 && old_mode != 3 {
+            println!("🔀 Extreme Mode: Randomizing fish depths...");
+            let mut rng = rand::thread_rng();
+            for mut transform in fish_query.iter_mut() {
+                // Randomize depth across full water column
+                transform.translation.y = rng.gen_range(-TANK_SIZE.y/2.0 + 0.5..TANK_SIZE.y/2.0 - 0.5);
+            }
+            println!("✅ Fish depths randomized! Depth shortcut broken!");
+        }
     }
 }
 
