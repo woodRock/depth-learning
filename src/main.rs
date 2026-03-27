@@ -25,8 +25,8 @@ const BIRD_EYE_WIDTH: u32 = 512;
 const BIRD_EYE_HEIGHT: u32 = 512;
 
 // Echosounder realism parameters
-const PULSE_LENGTH_M: f32 = 0.5;  // Pulse length in meters
-const TVG_GAIN: f32 = 0.15;  // Time-varied gain coefficient
+// const PULSE_LENGTH_M: f32 = 0.5;  // Pulse length in meters
+// const TVG_GAIN: f32 = 0.15;  // Time-varied gain coefficient
 
 // Dynamic population control
 const POPULATION_CYCLE_PERIOD: f32 = 60.0; // Seconds for full cycle (reduced from 120s)
@@ -35,7 +35,7 @@ const MAX_ACTIVE_RATIO: f32 = 1.0;  // Maximum % of schools active
 
 // Balanced dataset recording
 const BALANCED_RECORDING: bool = true;  // Enable balanced class recording
-const TARGET_PER_SPECIES: usize = 500;  // Target frames per species
+// const TARGET_PER_SPECIES: usize = 500;  // Target frames per species
 
 // Difficulty modes
 #[derive(Resource, Default)]
@@ -157,7 +157,6 @@ enum Species {
     Kingfish,
     Snapper,
     Cod,
-    Empty, 
 }
 
 impl Species {
@@ -167,7 +166,6 @@ impl Species {
             Species::Kingfish => (3.0, 5.5),  // Mid-depth (was 7.0-9.5, too deep)
             Species::Snapper => (2.0, 5.0),   // Mid-depth
             Species::Cod => (0.5, 3.0),       // Bottom-dwelling
-            Species::Empty => (0.0, 0.0),
         }
     }
     fn color(&self) -> Color {
@@ -175,7 +173,6 @@ impl Species {
             Species::Kingfish => Color::srgb(0.2, 0.5, 1.0),
             Species::Snapper => Color::srgb(1.0, 0.3, 0.3),
             Species::Cod => Color::srgb(0.5, 0.5, 0.2),
-            Species::Empty => Color::BLACK,
         }
     }
     fn scale(&self) -> f32 {
@@ -183,7 +180,6 @@ impl Species {
             Species::Kingfish => 4.0,
             Species::Snapper => 2.5,
             Species::Cod => 1.8,
-            Species::Empty => 0.0,
         }
     }
     fn target_strength(&self) -> (f32, f32, f32) {
@@ -196,7 +192,6 @@ impl Species {
             Species::Snapper => (-45.0, -43.0, -42.0),
             // Cod: stronger at higher frequencies (different body composition)
             Species::Cod => (-42.0, -39.0, -37.0),
-            Species::Empty => (-99.0, -99.0, -99.0),
         }
     }
     fn speed(&self) -> f32 {
@@ -204,7 +199,6 @@ impl Species {
             Species::Kingfish => 6.0,
             Species::Snapper => 3.0,
             Species::Cod => 1.5,
-            Species::Empty => 0.0,
         }
     }
     fn jitter_intensity(&self) -> f32 {
@@ -212,7 +206,6 @@ impl Species {
             Species::Kingfish => 0.2,
             Species::Snapper => 0.5,
             Species::Cod => 0.1,
-            Species::Empty => 0.0,
         }
     }
 }
@@ -231,7 +224,6 @@ struct Boid {
     max_force: f32,
     phase_offset: f32,
     school_id: u32,
-    is_active: bool,  // Whether this fish is currently active
     base_heading: Vec3,  // Base school heading (changes over time)
     heading_change_timer: f32,  // Timer for heading changes
 }
@@ -572,7 +564,6 @@ fn setup_scene(
                     max_force: 0.1,
                     phase_offset: rng.gen_range(0.0..std::f32::consts::TAU),
                     school_id: school_id as u32,
-                    is_active: true,
                     base_heading: school_direction,
                     heading_change_timer: rng.gen_range(0.0..30.0),  // Stagger heading changes
                 },
@@ -767,7 +758,7 @@ fn ui_tiled_windows_system(
                                         ui.add_space(20.0);
                                         ui.label(format!("{:<10}", species));
                                         
-                                        let color = if is_accurate {
+                                        let _color = if is_accurate {
                                             egui::Color32::from_rgb(0, 255, 100)  // Green = accurate
                                         } else {
                                             egui::Color32::YELLOW  // Yellow = off by >1
@@ -1553,7 +1544,7 @@ fn echosounder_ping_system(
             let tilt_factor = 1.0 - direction.dot(fish_forward).abs();
 
             // Time-varying TS (fish orientation changes, ±15% variation)
-            let ts_variation = 0.85 + 0.15 * (t * 2.0 + profile.ts_phase).sin();
+            let _ts_variation = 0.85 + 0.15 * (t * 2.0 + profile.ts_phase).sin();
 
             // Depth-based position
             let depth_ratio = (distance / (TANK_SIZE.y * 3.0)).clamp(0.0, 1.0);
