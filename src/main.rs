@@ -646,6 +646,7 @@ fn ui_tiled_windows_system(
                 0 => egui::Color32::LIGHT_GREEN,   // Easy = green
                 1 => egui::Color32::YELLOW,        // Medium = yellow
                 2 => egui::Color32::LIGHT_RED,     // Hard = red
+                3 => egui::Color32::from_rgb(200, 0, 255), // Extreme = Purple/Magenta
                 _ => egui::Color32::WHITE,
             };
             ui.label(
@@ -1171,6 +1172,7 @@ fn dataset_exporter_system(
                 0 => "easy",
                 1 => "medium",
                 2 => "hard",
+                3 => "extreme",
                 _ => "medium",
             };
             let export_path = format!("{}/{}", exporter.export_path, difficulty_folder);
@@ -1445,11 +1447,16 @@ fn boid_movement_system(
         let forward_drive = boid.velocity.normalize_or_zero() * 0.1;
         acceleration += forward_drive;
 
-        // Depth keeping with small migration
+        // Depth keeping with small migration (relaxed in Hard mode, disabled in Extreme)
         let (min_y, max_y) = species.preferred_depth_range();
         let target_y = (min_y + max_y) / 2.0 - TANK_SIZE.y / 2.0;
         let depth_error = target_y - pos.y;
-        acceleration.y += depth_error * 0.5;
+        let spring_strength = match difficulty.current {
+            2 => 0.05, // Hard: Weak spring
+            3 => 0.0,  // Extreme: No spring (full randomization)
+            _ => 0.5,  // Easy/Medium: Strong spring
+        };
+        acceleration.y += depth_error * spring_strength;
 
         boid.acceleration = acceleration;
         boid.velocity += acceleration * dt;
@@ -1776,8 +1783,14 @@ fn empty_frame_generator_system(
 
         for mut boid in fish_query.iter_mut() {
             // Override heading to swim away from transducer
-            boid.base_heading = swim_away_heading;
-            boid.velocity = swim_away_heading * boid.max_speed;
+            let mut target_heading = swim_away_heading;
+            if difficulty.current == 3 {
+                // In Extreme mode, preserve vertical component to maintain depth variety
+                target_heading.y = boid.base_heading.y;
+                target_heading = target_heading.normalize_or_zero();
+            }
+            boid.base_heading = target_heading;
+            boid.velocity = target_heading * boid.max_speed;
         }
 
         if empty_gen.empty_period_timer <= 0.0 {
@@ -1839,6 +1852,7 @@ fn update_school_headings_system(
         
         if new_timer > change_interval {
             new_timer = 0.0;
+            let mut rng = thread_rng();
             
             // Rotation angle depends on independence (Easy=0, Hard=full)
             let rotation_angle = (*school_id as f32 * 0.3 + 0.5).sin() * 0.5 * independence;
@@ -1852,6 +1866,14 @@ fn update_school_headings_system(
             
             new_heading.x = old_x * cos_a - old_z * sin_a;
             new_heading.z = old_x * sin_a + old_z * cos_a;
+            
+            // In Hard/Extreme mode, introduce vertical heading variance (climb/dive)
+            if difficulty.current >= 2 {
+                new_heading.y = rng.gen_range(-0.3..0.3);
+            } else {
+                new_heading.y = 0.0;
+            }
+            
             new_heading = new_heading.normalize_or_zero();
         }
         

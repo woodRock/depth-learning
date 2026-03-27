@@ -2,6 +2,7 @@
 name = "depth-learning"
 version = "0.1.0"
 edition = "2021"
+default-run = "depth-learning"
 
 [dependencies]
 bevy = "0.15.2"
