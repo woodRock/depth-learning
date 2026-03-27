@@ -283,8 +283,8 @@ impl HeadlessSim {
 
             let boid = &mut self.boids[i];
             
-            // Hard difficulty: Periodically change school heading
-            if self.difficulty == Difficulty::Hard && t > 0.0 && (t % 30.0) < dt {
+            // Hard/Extreme difficulty: Periodically change school heading
+            if (self.difficulty == Difficulty::Hard || self.difficulty == Difficulty::Extreme) && t > 0.0 && (t % 30.0) < dt {
                 let mut rng = thread_rng();
                 let angle = rng.gen_range(-20.0..20.0f32).to_radians();
                 let cos_a = angle.cos();
@@ -293,6 +293,10 @@ impl HeadlessSim {
                 let old_z = boid.base_heading.z;
                 boid.base_heading.x = old_x * cos_a - old_z * sin_a;
                 boid.base_heading.z = old_x * sin_a + old_z * cos_a;
+                
+                // Add vertical variety (Hard and Extreme)
+                boid.base_heading.y = rng.gen_range(-0.3..0.3f32);
+                
                 boid.base_heading = boid.base_heading.normalize_or_zero();
             }
 
@@ -315,10 +319,30 @@ impl HeadlessSim {
             accel += (boid.base_heading - vel.normalize_or_zero()) * heading_strength * boid.max_speed;
             accel += vel.normalize_or_zero() * 0.1; // forward drive
 
-            // Depth keeping
+            // Extreme mode: Add random vertical movement to break depth stratification
+            if self.difficulty == Difficulty::Extreme {
+                let mut rng = thread_rng();
+                // Random vertical acceleration (up or down)
+                let vertical_jitter = rng.gen_range(-0.5..0.5);
+                accel.y += vertical_jitter;
+                
+                // Check bounds for teleportation (matching main.rs)
+                let next_y = boid.pos.y + boid.velocity.y * dt;
+                if next_y < -TANK_SIZE.y/2.0 + 0.5 || next_y > TANK_SIZE.y/2.0 - 0.5 {
+                    boid.pos.y = rng.gen_range(-TANK_SIZE.y/2.0 + 0.5..TANK_SIZE.y/2.0 - 0.5);
+                }
+            }
+
+            // Depth keeping (relaxed in Hard mode, disabled in Extreme)
             let (min_y, max_y) = boid.species.preferred_depth_range();
             let target_y = (min_y + max_y) / 2.0 - TANK_SIZE.y / 2.0;
-            accel.y += (target_y - pos.y) * 0.5;
+            let depth_error = target_y - pos.y;
+            let spring_strength = match self.difficulty {
+                Difficulty::Hard => 0.05,
+                Difficulty::Extreme => 0.0,
+                _ => 0.5,
+            };
+            accel.y += depth_error * spring_strength;
 
             boid.acceleration = accel;
             boid.velocity += accel * dt;
@@ -484,9 +508,9 @@ fn main() {
             "--help" | "-h" => { show_help = true; }
             "--output" | "-o" => { i += 1; if i < args.len() { output_dir = args[i].clone(); } }
             "--samples" | "-n" => { i += 1; if i < args.len() { samples_per_species = args[i].parse().unwrap_or(333); } }
-            "--difficulty" | "-d" => {
-                i += 1;
-                if i < args.len() {
+            "--difficulty" | "-d" => { 
+                i += 1; 
+                if i < args.len() { 
                     difficulty = match args[i].to_lowercase().as_str() {
                         "easy" => Difficulty::Easy,
                         "medium" => Difficulty::Medium,
@@ -494,7 +518,10 @@ fn main() {
                         "extreme" => Difficulty::Extreme,
                         _ => Difficulty::Easy,
                     };
-                }
+                } 
+            }
+            "--extreme" => {
+                difficulty = Difficulty::Extreme;
             }
             _ => {}
         }
