@@ -15,10 +15,12 @@
 *.swo
 *~
 
-# Model weights
+# Model weights (large binary files)
 ml/weights/*.pth
-ml/weights/*.bin
-ml/weights/*.onnx
+ml/weights/*/*.pth
+weights/*.pth
+weights/*/*.pth
+*.onnx
 !ml/weights/.gitkeep
 
 # WandB logs

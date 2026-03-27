@@ -142,35 +142,108 @@ async def load_model():
     print(f"Server ready with {model_type.upper()} architecture.")
 
 @app.get("/evaluate")
-async def evaluate():
-    """Evaluate current model on extreme dataset and update results.json."""
-    global model, model_type, device
-    
-    if model is None:
-        return {"error": "Model not loaded"}
+async def evaluate(
+    architecture: str = "JEPA", 
+    dataset: str = "extreme", 
+    model_type: str = "Multi-modal",
+    test_dataset: str = "same"  # "same" or difficulty name for shortcut tests
+):
+    """Evaluate specified model on test dataset (simulated).
 
-    print(f"Starting evaluation for {model_type}...")
+    Args:
+        architecture: Model architecture ("JEPA" or "LeWM")
+        dataset: Dataset the model was trained on ("easy", "medium", "hard", "extreme")
+        model_type: Training mode ("Multi-modal" or "Acoustic-Only")
+        test_dataset: Dataset to test on ("same" or "easy"/"medium"/"hard"/"extreme" for shortcut tests)
+    """
+    # Use global device variable
+    global device
     
-    # Setup data
-    dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", "extreme"))
-    if not os.path.exists(dataset_path):
-        return {"error": f"Dataset not found at {dataset_path}"}
-        
-    # Use same transform as training (no augmentation for evaluation)
+    # Determine actual test dataset
+    actual_test_dataset = dataset if test_dataset == "same" else test_dataset
+    is_shortcut = (test_dataset != "same" and test_dataset != dataset)
+
+    print(f"Starting evaluation: {architecture} ({model_type})")
+    print(f"  Trained on: {dataset}")
+    print(f"  Tested on: {actual_test_dataset} {'(SHORTCUT TEST)' if is_shortcut else ''}")
+
+    # Load model from dataset-specific weights directory (trained on this dataset)
+    weights_dir = os.path.join(os.path.dirname(__file__), "weights", f"{architecture.lower()}_{dataset}")
+    config_path = os.path.join(weights_dir, "model_config.json")
+    weights_path = os.path.join(weights_dir, "fish_clip_model.pth")
+
+    if not os.path.exists(weights_path):
+        return {"error": f"Weights not found: {weights_path}"}
+
+    # Load config
+    with open(config_path, "r") as f:
+        config = json.load(f)
+
+    # Build model
+    arch_model_type = config.get("model_type", "transformer" if architecture == "JEPA" else "lewm")
+    task = config.get("task", "presence")
+
+    if architecture == "JEPA":
+        from models.acoustic import ConvEncoder, TransformerEncoder
+        from models.jepa import CrossModalJEPA
+
+        embed_dim = config.get("config", {}).get("embed_dim", 256)
+
+        if arch_model_type == "conv":
+            ac_encoder = ConvEncoder(embed_dim=embed_dim)
+        else:
+            ac_encoder = TransformerEncoder(embed_dim=embed_dim)
+
+        eval_model = CrossModalJEPA(
+            ac_encoder=ac_encoder,
+            embed_dim=embed_dim,
+            use_focal_loss=True,
+            task=task,
+        ).to(device)
+
+    elif architecture == "LeWM":
+        from models.lewm_multilabel import LeWorldModelMultiLabel
+
+        lewm_config = config.get("config", {})
+        embed_dim = lewm_config.get("embed_dim", 256)
+        num_layers = lewm_config.get("num_layers", 8)
+        num_heads = lewm_config.get("num_heads", 8)
+
+        eval_model = LeWorldModelMultiLabel(
+            embed_dim=embed_dim,
+            num_layers=num_layers,
+            num_heads=num_heads,
+            mlp_ratio=4.0,
+            drop=0.1,
+            n_classes=4,
+            use_classifier=True,
+            use_decoder=True,
+            task=task,
+        ).to(device)
+    else:
+        return {"error": f"Unknown architecture: {architecture}"}
+
+    # Load weights
+    state_dict = torch.load(weights_path, map_location=device, weights_only=False)
+    eval_model.load_state_dict(state_dict, strict=False)
+    eval_model.eval()
+
+    # Setup TEST dataset (the dataset we're evaluating ON)
+    test_data_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", actual_test_dataset))
+    if not os.path.exists(test_data_path):
+        return {"error": f"Test dataset not found: {test_data_path}"}
+
     eval_transform = transforms.Compose([
         transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
+
+    multi_label = (task == "presence") or (architecture == "LeWM")
+    eval_dataset = FishDataset(test_data_path, transform=eval_transform, mode="val", multi_label=multi_label, task=task)
+    loader = DataLoader(eval_dataset, batch_size=32, shuffle=False)
     
-    # Task detection
-    task = getattr(model, 'task', 'presence')
-    multi_label = (task == "presence") or (model_type == "lewm")
-    
-    dataset = FishDataset(dataset_path, transform=eval_transform, mode="val", multi_label=multi_label, task=task)
-    loader = DataLoader(dataset, batch_size=32, shuffle=False)
-    
-    model.eval()
+    # Evaluate
     class_tp = torch.zeros(4)
     class_fp = torch.zeros(4)
     class_fn = torch.zeros(4)
@@ -179,18 +252,14 @@ async def evaluate():
         for _, ac, labels in loader:
             ac, labels = ac.to(device), labels.to(device)
             
-            if model_type == "lewm":
-                _, _, species_logits, _ = model(ac)
-            elif model_type == "translator":
-                _, species_logits = model(ac)
-            elif model_type in ["conv", "transformer"]:
-                # JEPA models
-                _, species_logits = model.forward_ac_to_vis_latent(ac)
+            if architecture == "LeWM":
+                _, _, species_logits, _ = eval_model(ac)
+            elif architecture == "JEPA":
+                _, species_logits = eval_model.forward_ac_to_vis_latent(ac)
             else:
-                # Other models (lstm, ast, etc.)
-                species_logits = model(ac)
-                
-            if task == "presence" or model_type == "lewm":
+                species_logits = eval_model(ac)
+            
+            if task == "presence" or architecture == "LeWM":
                 probs = torch.sigmoid(species_logits)
                 preds = (probs > 0.5).float()
                 
@@ -203,7 +272,6 @@ async def evaluate():
                         class_fp[c] += fp[c].item()
                         class_fn[c] += fn[c].item()
             else:
-                # Single label
                 preds_idx = torch.argmax(species_logits, dim=1)
                 for i in range(labels.shape[0]):
                     label_idx = labels[i].item()
@@ -213,7 +281,7 @@ async def evaluate():
                     else:
                         class_fp[pred_idx] += 1
                         class_fn[label_idx] += 1
-
+    
     # Calculate F1
     class_precision = class_tp / (class_tp + class_fp + 1e-8)
     class_recall = class_tp / (class_tp + class_fn + 1e-8)
@@ -227,28 +295,92 @@ async def evaluate():
         "avg_f1": class_f1.mean().item()
     }
     
-    # Update results.json
+    # Update results.json with test results for this model
     results_path = os.path.join(os.path.dirname(__file__), "results.json")
     if os.path.exists(results_path):
         try:
             with open(results_path, "r") as f:
                 results = json.load(f)
-            
-            # Find the most recent entry for this architecture
-            arch_name = "LeWM" if model_type == "lewm" else "JEPA"
-            for entry in reversed(results):
-                if entry["architecture"] == arch_name:
-                    entry["test"] = test_results
-                    break
-            
+
+            if is_shortcut:
+                # For shortcut tests, create a new entry
+                import datetime
+                shortcut_entry = {
+                    "architecture": architecture,
+                    "model_type": arch_model_type,
+                    "dataset": dataset,  # Trained on this
+                    "test_dataset": actual_test_dataset,  # Tested on this
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "shortcut_test": True,
+                    "train": None,
+                    "val": None,
+                    "test": test_results,
+                }
+                results.append(shortcut_entry)
+                print(f"Added shortcut test entry: {architecture} trained on {dataset}, tested on {actual_test_dataset}")
+            else:
+                # For regular tests, find and update matching entry
+                # Match by: architecture + dataset + mode (acoustic_only vs multi-modal)
+                found = False
+                target_mode = "acoustic_only" if model_type.lower() == "acoustic-only" else None
+                
+                for i, entry in enumerate(results):
+                    # Skip shortcuts
+                    if entry.get("shortcut_test", False):
+                        continue
+                    
+                    # Must match architecture and dataset
+                    if entry["architecture"] != architecture:
+                        continue
+                    if entry["dataset"] != dataset:
+                        continue
+                    
+                    # Match mode
+                    entry_mode = entry.get("mode")
+                    
+                    if target_mode == "acoustic_only":
+                        # Looking for acoustic_only entry
+                        if entry_mode == "acoustic_only":
+                            results[i]["test"] = test_results
+                            found = True
+                            print(f"Updated entry [{i}] ({architecture} {dataset} acoustic_only) with test results")
+                            break
+                    else:
+                        # Looking for multi-modal entry (mode is None or not acoustic_only)
+                        if entry_mode is None or entry_mode != "acoustic_only":
+                            # Prefer entries without test results
+                            if entry.get("test") is None:
+                                results[i]["test"] = test_results
+                                found = True
+                                print(f"Updated entry [{i}] ({architecture} {dataset} multi-modal) with test results")
+                                break
+                            elif not found:
+                                # Fallback: update entry that already has test
+                                results[i]["test"] = test_results
+                                found = True
+                                print(f"Updated entry [{i}] ({architecture} {dataset} multi-modal) - overwrote test")
+                
+                if not found:
+                    print(f"WARNING: No matching entry found!")
+                    print(f"  Looking for: {architecture} | {dataset} | mode={target_mode or 'multi-modal'}")
+                    print(f"  Available entries:")
+                    for i, entry in enumerate(results):
+                        if entry["architecture"] == architecture and entry["dataset"] == dataset:
+                            emode = entry.get("mode", "NOT_SET")
+                            has_test = "✓" if entry.get("test") else "NULL"
+                            print(f"    [{i}] mode={emode:15} test={has_test}")
+
             with open(results_path, "w") as f:
                 json.dump(results, f, indent=2)
-            print(f"Updated results.json with test metrics.")
+            print(f"Saved results.json")
         except Exception as e:
             print(f"Error updating results.json: {e}")
-
+            import traceback
+            traceback.print_exc()
+    
     return {
-        "architecture": model_type,
+        "architecture": architecture,
+        "trained_on": dataset,
         "task": task,
         "metrics": test_results
     }
