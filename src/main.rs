@@ -115,6 +115,7 @@ impl Default for DynamicPopulation {
 struct InferenceChannels {
     pub tx_image: Sender<Vec<u8>>,
     pub rx_preds: Receiver<PredictionResponse>,
+    pub tx_eval: Sender<()>,
 }
 
 #[derive(Resource)]
@@ -129,6 +130,7 @@ struct InferenceResult {
     pub species_counts: std::collections::HashMap<String, u32>,  // Count per species (for counting task)
     pub is_multilabel: bool,  // Track if using multi-label predictions
     pub task: String,  // Task type: "presence" or "counting"
+    pub last_eval_status: String, // Status message from last evaluation
     pub timer: Timer,
 }
 
@@ -145,6 +147,7 @@ impl Default for InferenceResult {
             species_counts: std::collections::HashMap::new(),
             is_multilabel: true,  // Default to multi-label (presence/absence)
             task: "presence".to_string(),  // Default task
+            last_eval_status: "".to_string(),
             timer: Timer::from_seconds(0.5, TimerMode::Repeating),
         }
     }
@@ -303,7 +306,9 @@ impl Default for DatasetExporter {
 fn main() {
     let (tx_img, rx_img) = unbounded::<Vec<u8>>();
     let (tx_preds, rx_preds) = unbounded::<PredictionResponse>();
+    let (tx_eval, rx_eval) = unbounded::<()>();
 
+    // Thread for model inference
     thread::spawn(move || {
         let client = reqwest::blocking::Client::new();
         while let Ok(png_bytes) = rx_img.recv() {
@@ -326,6 +331,20 @@ fn main() {
         }
     });
 
+    // Thread for model evaluation
+    thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        while let Ok(_) = rx_eval.recv() {
+            println!("Triggering model evaluation...");
+            if let Ok(_resp) = client
+                .get("http://127.0.0.1:8000/evaluate")
+                .send()
+            {
+                println!("Evaluation complete.");
+            }
+        }
+    });
+
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(EguiPlugin)
@@ -333,6 +352,7 @@ fn main() {
         .insert_resource(InferenceChannels {
             tx_image: tx_img,
             rx_preds,
+            tx_eval,
         })
         .init_resource::<CameraSettings>()
         .init_resource::<DatasetExporter>()
@@ -619,8 +639,9 @@ fn ui_tiled_windows_system(
     mut contexts: EguiContexts,
     ui_state: Res<UIState>,
     mut exporter: ResMut<DatasetExporter>,
-    inference: Res<InferenceResult>,
+    mut inference: ResMut<InferenceResult>,
     difficulty: Res<DifficultyMode>,
+    channels: Res<InferenceChannels>,
 ) {
     let bird_eye_id = contexts.add_image(ui_state.bird_eye_texture.clone());
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
@@ -858,6 +879,16 @@ fn ui_tiled_windows_system(
                                 });
                             });
                             ui.add_space(10.0);
+                            
+                            ui.vertical_centered(|ui| {
+                                if ui.button(egui::RichText::new("\u{1f4ca} Evaluate Model on Extreme Dataset").strong()).clicked() {
+                                    let _ = channels.tx_eval.send(());
+                                    inference.last_eval_status = "Evaluation triggered...".to_string();
+                                }
+                                if !inference.last_eval_status.is_empty() {
+                                    ui.label(egui::RichText::new(&inference.last_eval_status).small().italics());
+                                }
+                            });
                             ui.label(format!("Samples Analyzed: {}", inference.total_count));
                             
                             // Per-class accuracy breakdown

@@ -4,11 +4,13 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 import os
 import json
+import datetime
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader
+from torchvision import transforms
 from tqdm import tqdm
 import wandb
 
@@ -44,6 +46,7 @@ class BaseTrainer(ABC):
     def train(self, train_loader: DataLoader, val_loader: DataLoader) -> None:
         """Full training loop."""
         best_score = 0.0
+        best_metrics = None
         
         for epoch in range(self.config.epochs):
             # Training phase
@@ -59,12 +62,59 @@ class BaseTrainer(ABC):
             current_score = self._get_save_score(val_metrics)
             if current_score >= best_score:
                 best_score = current_score
+                best_metrics = {"train": train_metrics, "val": val_metrics}
                 self._save_model(epoch)
             
             # Learning rate scheduling
             if self.scheduler:
                 self.scheduler.step()
-    
+        
+        # Save final results to results.json
+        if best_metrics:
+            self._record_final_results(best_metrics)
+
+    def _record_final_results(self, metrics: Dict[str, Any]) -> None:
+        """Append the best metrics to results.json."""
+        results_path = os.path.join(os.path.dirname(__file__), "results.json")
+        
+        # Prepare new entry
+        entry = {
+            "architecture": "LeWM" if self.config.model_type == "lewm" else "JEPA",
+            "model_type": self.config.model_type,
+            "dataset": self.config.dataset,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "train": {
+                "kingfish_f1": metrics["train"].get("f1_kingfish", 0),
+                "snapper_f1": metrics["train"].get("f1_snapper", 0),
+                "cod_f1": metrics["train"].get("f1_cod", 0),
+                "empty_f1": metrics["train"].get("f1_empty", 0),
+                "avg_f1": metrics["train"].get("f1", 0),
+            },
+            "val": {
+                "kingfish_f1": metrics["val"].get("f1_kingfish", 0),
+                "snapper_f1": metrics["val"].get("f1_snapper", 0),
+                "cod_f1": metrics["val"].get("f1_cod", 0),
+                "empty_f1": metrics["val"].get("f1_empty", 0),
+                "avg_f1": metrics["val"].get("f1", 0),
+            },
+            "test": None # To be filled by simulation evaluation
+        }
+
+        # Load existing results
+        results = []
+        if os.path.exists(results_path):
+            try:
+                with open(results_path, "r") as f:
+                    results = json.load(f)
+            except:
+                pass
+        
+        results.append(entry)
+        
+        with open(results_path, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"Results saved to {results_path}")
+
     def _log_metrics(
         self,
         epoch: int,
@@ -163,6 +213,11 @@ class JEPATrainer(BaseTrainer):
         total_precision = 0
         total_recall = 0
         total_f1 = 0
+        
+        # Per-class F1 (for presence task)
+        class_tp = torch.zeros(4)
+        class_fp = torch.zeros(4)
+        class_fn = torch.zeros(4)
 
         pbar = tqdm(loader, desc="Training")
         for vis, ac, labels in pbar:
@@ -189,12 +244,21 @@ class JEPATrainer(BaseTrainer):
                 preds = (probs > 0.5).float()
 
                 for i in range(labels.shape[0]):
-                    tp = (preds[i] * labels[i]).sum().item()
-                    fp = (preds[i] * (1 - labels[i])).sum().item()
-                    fn = ((1 - preds[i]) * labels[i]).sum().item()
+                    tp = preds[i] * labels[i]
+                    fp = preds[i] * (1 - labels[i])
+                    fn = (1 - preds[i]) * labels[i]
 
-                    precision = tp / (tp + fp + 1e-8)
-                    recall = tp / (tp + fn + 1e-8)
+                    for c in range(4):
+                        class_tp[c] += tp[c].item()
+                        class_fp[c] += fp[c].item()
+                        class_fn[c] += fn[c].item()
+
+                    tp_sum = tp.sum().item()
+                    fp_sum = fp.sum().item()
+                    fn_sum = fn.sum().item()
+
+                    precision = tp_sum / (tp_sum + fp_sum + 1e-8)
+                    recall = tp_sum / (tp_sum + fn_sum + 1e-8)
                     f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
                     total_precision += precision
@@ -216,6 +280,11 @@ class JEPATrainer(BaseTrainer):
                 pbar.set_postfix({"loss": f"{loss.item():.3f}", "acc": f"{100*correct/total:.1f}%"})
 
         if hasattr(self.model, 'task') and self.model.task == "presence":
+            # Per-class F1
+            class_precision = class_tp / (class_tp + class_fp + 1e-8)
+            class_recall = class_tp / (class_tp + class_fn + 1e-8)
+            class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+            
             return {
                 "loss": total_loss / len(loader),
                 "loss_jepa": total_loss_jepa / len(loader),
@@ -223,6 +292,10 @@ class JEPATrainer(BaseTrainer):
                 "precision": total_precision / total,
                 "recall": total_recall / total,
                 "f1": total_f1 / total,
+                "f1_kingfish": class_f1[0].item(),
+                "f1_snapper": class_f1[1].item(),
+                "f1_cod": class_f1[2].item(),
+                "f1_empty": class_f1[3].item(),
             }
         else:
             return {
@@ -377,6 +450,11 @@ class LeWMTrainer(BaseTrainer):
         total_mae = 0
         total_rmse = 0
         total_samples = 0
+        
+        # Per-class F1
+        class_tp = torch.zeros(4)
+        class_fp = torch.zeros(4)
+        class_fn = torch.zeros(4)
 
         pbar = tqdm(loader, desc="Training")
         for vis, ac, labels in pbar:
@@ -441,12 +519,21 @@ class LeWMTrainer(BaseTrainer):
 
                 # Per-sample F1, then average
                 for i in range(labels.shape[0]):
-                    tp = (preds[i] * labels[i]).sum().item()
-                    fp = (preds[i] * (1 - labels[i])).sum().item()
-                    fn = ((1 - preds[i]) * labels[i]).sum().item()
+                    tp = preds[i] * labels[i]
+                    fp = preds[i] * (1 - labels[i])
+                    fn = (1 - preds[i]) * labels[i]
 
-                    precision = tp / (tp + fp + 1e-8)
-                    recall = tp / (tp + fn + 1e-8)
+                    for c in range(4):
+                        class_tp[c] += tp[c].item()
+                        class_fp[c] += fp[c].item()
+                        class_fn[c] += fn[c].item()
+
+                    tp_sum = tp.sum().item()
+                    fp_sum = fp.sum().item()
+                    fn_sum = fn.sum().item()
+
+                    precision = tp_sum / (tp_sum + fp_sum + 1e-8)
+                    recall = tp_sum / (tp_sum + fn_sum + 1e-8)
                     f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
                     total_precision += precision
@@ -460,6 +547,11 @@ class LeWMTrainer(BaseTrainer):
 
             total_samples += labels.shape[0]
 
+        # Per-class F1
+        class_precision = class_tp / (class_tp + class_fp + 1e-8)
+        class_recall = class_tp / (class_tp + class_fn + 1e-8)
+        class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+
         return {
             "loss": total_loss / len(loader),
             "loss_pred": total_loss_pred / len(loader),
@@ -469,6 +561,10 @@ class LeWMTrainer(BaseTrainer):
             "precision": total_precision / total_samples,
             "recall": total_recall / total_samples,
             "f1": total_f1 / total_samples,
+            "f1_kingfish": class_f1[0].item(),
+            "f1_snapper": class_f1[1].item(),
+            "f1_cod": class_f1[2].item(),
+            "f1_empty": class_f1[3].item(),
             "mae": total_mae / total_samples if total_samples > 0 else 0,
             "rmse": total_rmse / total_samples if total_samples > 0 else 0,
         }
