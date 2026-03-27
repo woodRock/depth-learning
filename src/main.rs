@@ -115,7 +115,7 @@ impl Default for DynamicPopulation {
 struct InferenceChannels {
     pub tx_image: Sender<Vec<u8>>,
     pub rx_preds: Receiver<PredictionResponse>,
-    pub tx_eval: Sender<()>,
+    pub tx_eval: Sender<(String, String, String, String)>,  // (architecture, dataset, model_type, test_dataset)
 }
 
 #[derive(Resource)]
@@ -149,6 +149,61 @@ impl Default for InferenceResult {
             task: "presence".to_string(),  // Default task
             last_eval_status: "".to_string(),
             timer: Timer::from_seconds(0.5, TimerMode::Repeating),
+        }
+    }
+}
+
+// Model selection for evaluation
+#[derive(Resource, Default)]
+struct ModelSelection {
+    pub selected_architecture: String,   // "JEPA" or "LeWM"
+    pub selected_dataset: String,        // "easy", "medium", "hard", "extreme"
+    pub selected_model_type: String,     // "Multi-modal" or "Acoustic-Only"
+    pub selected_test_dataset: String,   // For shortcut tests: "same" or difficulty name
+    pub architectures: Vec<String>,      // Unique architecture names
+    pub datasets: Vec<String>,           // Unique dataset names
+    pub model_types: Vec<String>,        // "Multi-modal", "Acoustic-Only"
+    pub test_datasets: Vec<String>,      // "Same as Train", "easy", "medium", "hard", "extreme"
+}
+
+impl ModelSelection {
+    fn new() -> Self {
+        Self {
+            selected_architecture: "JEPA".to_string(),
+            selected_dataset: "easy".to_string(),
+            selected_model_type: "Multi-modal".to_string(),
+            selected_test_dataset: "Same as Train".to_string(),
+            architectures: vec![
+                "JEPA".to_string(),
+                "LeWM".to_string(),
+            ],
+            datasets: vec![
+                "easy".to_string(),
+                "medium".to_string(),
+                "hard".to_string(),
+                "extreme".to_string(),
+            ],
+            model_types: vec![
+                "Multi-modal".to_string(),
+                "Acoustic-Only".to_string(),
+            ],
+            test_datasets: vec![
+                "Same as Train".to_string(),
+                "easy".to_string(),
+                "medium".to_string(),
+                "hard".to_string(),
+                "extreme".to_string(),
+            ],
+        }
+    }
+    
+    fn get_available_model_types(&self, architecture: &str) -> Vec<String> {
+        // JEPA has both Multi-modal and Acoustic-Only
+        // LeWM only has Acoustic-Only
+        if architecture == "JEPA" {
+            vec!["Multi-modal".to_string(), "Acoustic-Only".to_string()]
+        } else {
+            vec!["Acoustic-Only".to_string()]
         }
     }
 }
@@ -306,7 +361,7 @@ impl Default for DatasetExporter {
 fn main() {
     let (tx_img, rx_img) = unbounded::<Vec<u8>>();
     let (tx_preds, rx_preds) = unbounded::<PredictionResponse>();
-    let (tx_eval, rx_eval) = unbounded::<()>();
+    let (tx_eval, rx_eval) = unbounded::<(String, String, String, String)>();  // (architecture, dataset, model_type, test_dataset)
 
     // Thread for model inference
     thread::spawn(move || {
@@ -331,16 +386,20 @@ fn main() {
         }
     });
 
-    // Thread for model evaluation
+    // Thread for model evaluation with model selection
     thread::spawn(move || {
         let client = reqwest::blocking::Client::new();
-        while let Ok(_) = rx_eval.recv() {
-            println!("Triggering model evaluation...");
-            if let Ok(_resp) = client
-                .get("http://127.0.0.1:8000/evaluate")
-                .send()
-            {
-                println!("Evaluation complete.");
+        while let Ok((arch, dataset, model_type, test_dataset)) = rx_eval.recv() {
+            println!("Triggering model evaluation: {} ({}) trained on {}, tested on {}", arch, model_type, dataset, test_dataset);
+            let eval_url = format!(
+                "http://127.0.0.1:8000/evaluate?architecture={}&dataset={}&model_type={}&test_dataset={}",
+                urlencoding::encode(&arch),
+                urlencoding::encode(&dataset),
+                urlencoding::encode(&model_type),
+                urlencoding::encode(&test_dataset)
+            );
+            if let Ok(_resp) = client.get(&eval_url).send() {
+                println!("Evaluation complete for {} ({}) on {}", arch, model_type, test_dataset);
             }
         }
     });
@@ -361,6 +420,7 @@ fn main() {
         .init_resource::<EmptyFrameGenerator>()  // For generating empty frames
         .init_resource::<RecordingStats>()  // Track recording statistics
         .insert_resource(DifficultyMode::new())  // Add difficulty mode resource
+        .insert_resource(ModelSelection::new())  // Add model selection resource
         .add_systems(
             Startup,
             (setup_render_textures, setup_scene, setup_cameras).chain(),
@@ -642,6 +702,7 @@ fn ui_tiled_windows_system(
     mut inference: ResMut<InferenceResult>,
     difficulty: Res<DifficultyMode>,
     channels: Res<InferenceChannels>,
+    mut model_selection: ResMut<ModelSelection>,
 ) {
     let bird_eye_id = contexts.add_image(ui_state.bird_eye_texture.clone());
     let echogram_id = contexts.add_image(ui_state.echogram_texture.clone());
@@ -879,11 +940,118 @@ fn ui_tiled_windows_system(
                                 });
                             });
                             ui.add_space(10.0);
-                            
+
                             ui.vertical_centered(|ui| {
-                                if ui.button(egui::RichText::new("\u{1f4ca} Evaluate Model on Extreme Dataset").strong()).clicked() {
-                                    let _ = channels.tx_eval.send(());
-                                    inference.last_eval_status = "Evaluation triggered...".to_string();
+                                // Model selection dropdown
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new("Select Model for Evaluation:").strong());
+                                    ui.add_space(5.0);
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("Architecture:");
+                                        let architectures = model_selection.architectures.clone();
+                                        egui::ComboBox::from_id_salt("arch_select")
+                                            .selected_text(&model_selection.selected_architecture)
+                                            .show_ui(ui, |ui| {
+                                                for arch in &architectures {
+                                                    ui.selectable_value(
+                                                        &mut model_selection.selected_architecture,
+                                                        arch.clone(),
+                                                        arch,
+                                                    );
+                                                }
+                                            });
+
+                                        ui.label("Dataset:");
+                                        let datasets = model_selection.datasets.clone();
+                                        egui::ComboBox::from_id_salt("data_select")
+                                            .selected_text(&model_selection.selected_dataset)
+                                            .show_ui(ui, |ui| {
+                                                for dataset in &datasets {
+                                                    ui.selectable_value(
+                                                        &mut model_selection.selected_dataset,
+                                                        dataset.clone(),
+                                                        dataset,
+                                                    );
+                                                }
+                                            });
+                                    });
+
+                                    ui.add_space(5.0);
+                                    ui.horizontal(|ui| {
+                                        ui.label("Training Mode:");
+                                        let model_types = model_selection.get_available_model_types(&model_selection.selected_architecture);
+                                        egui::ComboBox::from_id_salt("type_select")
+                                            .selected_text(&model_selection.selected_model_type)
+                                            .show_ui(ui, |ui| {
+                                                for model_type in &model_types {
+                                                    ui.selectable_value(
+                                                        &mut model_selection.selected_model_type,
+                                                        model_type.clone(),
+                                                        model_type,
+                                                    );
+                                                }
+                                            });
+
+                                        ui.label("Test On:");
+                                        let test_datasets = model_selection.test_datasets.clone();
+                                        egui::ComboBox::from_id_salt("test_select")
+                                            .selected_text(&model_selection.selected_test_dataset)
+                                            .show_ui(ui, |ui| {
+                                                for test_ds in &test_datasets {
+                                                    ui.selectable_value(
+                                                        &mut model_selection.selected_test_dataset,
+                                                        test_ds.clone(),
+                                                        test_ds,
+                                                    );
+                                                }
+                                            });
+                                    });
+                                });
+
+                                ui.add_space(10.0);
+
+                                // Evaluate button with selected model
+                                let test_ds = if model_selection.selected_test_dataset == "Same as Train" {
+                                    model_selection.selected_dataset.clone()
+                                } else {
+                                    model_selection.selected_test_dataset.clone()
+                                };
+                                
+                                let is_shortcut = model_selection.selected_test_dataset != "Same as Train" 
+                                    && model_selection.selected_test_dataset != model_selection.selected_dataset;
+                                
+                                let eval_label = if is_shortcut {
+                                    format!(
+                                        "\u{1f4ca} Shortcut Test: {} ({}) trained on {}, tested on {}",
+                                        model_selection.selected_architecture,
+                                        model_selection.selected_model_type,
+                                        model_selection.selected_dataset,
+                                        model_selection.selected_test_dataset
+                                    )
+                                } else {
+                                    format!(
+                                        "\u{1f4ca} Evaluate {} ({}) on {} (Test)",
+                                        model_selection.selected_architecture,
+                                        model_selection.selected_model_type,
+                                        model_selection.selected_dataset
+                                    )
+                                };
+                                
+                                if ui.button(egui::RichText::new(eval_label).strong()).clicked() {
+                                    let _ = channels.tx_eval.send((
+                                        model_selection.selected_architecture.clone(),
+                                        model_selection.selected_dataset.clone(),
+                                        model_selection.selected_model_type.clone(),
+                                        test_ds.clone(),
+                                    ));
+                                    inference.last_eval_status = format!(
+                                        "Evaluating {} ({}) trained on {}, tested on {}...",
+                                        model_selection.selected_architecture,
+                                        model_selection.selected_model_type,
+                                        model_selection.selected_dataset,
+                                        test_ds
+                                    );
                                 }
                                 if !inference.last_eval_status.is_empty() {
                                     ui.label(egui::RichText::new(&inference.last_eval_status).small().italics());

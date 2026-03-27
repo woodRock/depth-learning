@@ -2057,6 +2057,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "urlencoding",
 ]
 
 [[package]]
