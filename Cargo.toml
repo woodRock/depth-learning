@@ -2,7 +2,7 @@
 name = "depth-learning"
 version = "0.1.0"
 edition = "2021"
-default-run = "depth-learning"
+default-run = "simulation"
 
 [dependencies]
 bevy = "0.15.2"
@@ -15,6 +15,10 @@ serde_json = "1.0.149"
 crossbeam-channel = "0.5"
 base64 = "0.22"
 gltf = "1.4.1"
+
+[[bin]]
+name = "simulation"
+path = "src/main.rs"
 
 [[bin]]
 name = "generate_dataset"
