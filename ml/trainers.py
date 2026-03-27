@@ -387,7 +387,16 @@ class LeWMTrainer(BaseTrainer):
             pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
 
             # Compute reconstruction target (denormalize visual image)
-            target_img = vis if self.model.use_decoder else None
+            if self.model.use_decoder:
+                # Denormalize target image from [-1, 1] (roughly) to [0, 1]
+                # Using ImageNet normalization constants as defined in data.py
+                inv_normalize = transforms.Normalize(
+                    mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
+                    std=[1/0.229, 1/0.224, 1/0.225],
+                )
+                target_img = torch.stack([inv_normalize(v) for v in vis])
+            else:
+                target_img = None
 
             loss, pred_loss, sigreg_loss, loss_cls, recon_loss = self.model.compute_loss(
                 pred_emb, goal_emb, species_logits, labels,
@@ -494,7 +503,16 @@ class LeWMTrainer(BaseTrainer):
                 vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
 
                 pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
-                target_img = vis if self.model.use_decoder else None
+                
+                # Compute reconstruction target (denormalize visual image)
+                if self.model.use_decoder:
+                    inv_normalize = transforms.Normalize(
+                        mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
+                        std=[1/0.229, 1/0.224, 1/0.225],
+                    )
+                    target_img = torch.stack([inv_normalize(v) for v in vis])
+                else:
+                    target_img = None
 
                 loss, pred_loss, sigreg_loss, cls_loss, recon_loss = self.model.compute_loss(
                     pred_emb, goal_emb, species_logits, labels,

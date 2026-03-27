@@ -205,6 +205,13 @@ async def predict(file: UploadFile = File(...)):
             # Get reconstruction if decoder is enabled
             if recon_img is not None:
                 # Reconstruction is already (B, 3, 224, 224), clamp and convert
+                # AUTO-NORMALIZATION: If image is very dark, boost it for visibility
+                # This helps if the model was trained with normalized targets (bug fix applied in trainers.py)
+                curr_max = recon_img.max().item()
+                if curr_max > 0 and curr_max < 0.3:
+                    print(f"DEBUG: Boosting dark LeWM reconstruction (max={curr_max:.3f})")
+                    recon_img = recon_img / (curr_max + 1e-8)
+                
                 gen_img_tensor = recon_img.cpu().clamp(0, 1)
             else:
                 gen_img_tensor = None  # Decoder not enabled or no reconstruction
@@ -215,7 +222,8 @@ async def predict(file: UploadFile = File(...)):
         
         # Generation encoding
         if gen_img_tensor is not None:
-            gen_img_np = (gen_img_tensor.squeeze().cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+            # Use [0] to safely remove batch dim without squeezing single-channel images if they exist
+            gen_img_np = (gen_img_tensor[0].cpu().permute(1, 2, 0).numpy() * 255).astype(np.uint8)
             pil_img = Image.fromarray(gen_img_np)
             buffered = io.BytesIO()
             pil_img.save(buffered, format="PNG")
