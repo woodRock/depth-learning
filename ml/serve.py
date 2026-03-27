@@ -2,6 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 from fastapi import FastAPI, UploadFile, File
 from torchvision import transforms
 from PIL import Image
@@ -139,6 +140,118 @@ async def load_model():
         decoder.eval()
     
     print(f"Server ready with {model_type.upper()} architecture.")
+
+@app.get("/evaluate")
+async def evaluate():
+    """Evaluate current model on extreme dataset and update results.json."""
+    global model, model_type, device
+    
+    if model is None:
+        return {"error": "Model not loaded"}
+
+    print(f"Starting evaluation for {model_type}...")
+    
+    # Setup data
+    dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", "extreme"))
+    if not os.path.exists(dataset_path):
+        return {"error": f"Dataset not found at {dataset_path}"}
+        
+    # Use same transform as training (no augmentation for evaluation)
+    eval_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+    ])
+    
+    # Task detection
+    task = getattr(model, 'task', 'presence')
+    multi_label = (task == "presence") or (model_type == "lewm")
+    
+    dataset = FishDataset(dataset_path, transform=eval_transform, mode="val", multi_label=multi_label, task=task)
+    loader = DataLoader(dataset, batch_size=32, shuffle=False)
+    
+    model.eval()
+    class_tp = torch.zeros(4)
+    class_fp = torch.zeros(4)
+    class_fn = torch.zeros(4)
+    
+    with torch.no_grad():
+        for _, ac, labels in loader:
+            ac, labels = ac.to(device), labels.to(device)
+            
+            if model_type == "lewm":
+                _, _, species_logits, _ = model(ac)
+            elif model_type == "translator":
+                _, species_logits = model(ac)
+            elif model_type in ["conv", "transformer"]:
+                # JEPA models
+                _, species_logits = model.forward_ac_to_vis_latent(ac)
+            else:
+                # Other models (lstm, ast, etc.)
+                species_logits = model(ac)
+                
+            if task == "presence" or model_type == "lewm":
+                probs = torch.sigmoid(species_logits)
+                preds = (probs > 0.5).float()
+                
+                for i in range(labels.shape[0]):
+                    tp = preds[i] * labels[i]
+                    fp = preds[i] * (1 - labels[i])
+                    fn = (1 - preds[i]) * labels[i]
+                    for c in range(4):
+                        class_tp[c] += tp[c].item()
+                        class_fp[c] += fp[c].item()
+                        class_fn[c] += fn[c].item()
+            else:
+                # Single label
+                preds_idx = torch.argmax(species_logits, dim=1)
+                for i in range(labels.shape[0]):
+                    label_idx = labels[i].item()
+                    pred_idx = preds_idx[i].item()
+                    if label_idx == pred_idx:
+                        class_tp[label_idx] += 1
+                    else:
+                        class_fp[pred_idx] += 1
+                        class_fn[label_idx] += 1
+
+    # Calculate F1
+    class_precision = class_tp / (class_tp + class_fp + 1e-8)
+    class_recall = class_tp / (class_tp + class_fn + 1e-8)
+    class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+    
+    test_results = {
+        "kingfish_f1": class_f1[0].item(),
+        "snapper_f1": class_f1[1].item(),
+        "cod_f1": class_f1[2].item(),
+        "empty_f1": class_f1[3].item(),
+        "avg_f1": class_f1.mean().item()
+    }
+    
+    # Update results.json
+    results_path = os.path.join(os.path.dirname(__file__), "results.json")
+    if os.path.exists(results_path):
+        try:
+            with open(results_path, "r") as f:
+                results = json.load(f)
+            
+            # Find the most recent entry for this architecture
+            arch_name = "LeWM" if model_type == "lewm" else "JEPA"
+            for entry in reversed(results):
+                if entry["architecture"] == arch_name:
+                    entry["test"] = test_results
+                    break
+            
+            with open(results_path, "w") as f:
+                json.dump(results, f, indent=2)
+            print(f"Updated results.json with test metrics.")
+        except Exception as e:
+            print(f"Error updating results.json: {e}")
+
+    return {
+        "architecture": model_type,
+        "task": task,
+        "metrics": test_results
+    }
 
 @app.post("/predict_acoustic")
 async def predict(file: UploadFile = File(...)):

@@ -7,7 +7,7 @@
     "batch_size": 32,
     "learning_rate": 0.0003,
     "weight_decay": 0.05,
-    "dataset": "hard",
+    "dataset": "extreme",
     "n_chunks": 10,
     "with_aug": true,
     "light_aug": false,
@@ -17,7 +17,7 @@
     "sigreg_weight": 0.1,
     "wandb_entity": "victoria-university-of-wellington",
     "wandb_project": "depth-learning",
-    "weights_dir": "weights"
+    "weights_dir": "weights/jepa_extreme"
   },
   "task": "presence"
 }

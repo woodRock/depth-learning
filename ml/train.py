@@ -54,6 +54,11 @@ def setup_wandb(config: object, job_type: str) -> None:
 def train_jepa(args: argparse.Namespace) -> None:
     """Train JEPA model (Joint Embedding Predictive Architecture)."""
     config = TrainingConfig.from_args(args)
+    # Set dataset-specific weights directory if not specified
+    if args.weights_dir is None:
+        config.weights_dir = f"weights/jepa_{config.dataset}"
+    else:
+        config.weights_dir = args.weights_dir
     device = _get_device()
 
     print(f"--- Starting JEPA Training ({config.model_type.upper()}) on {device} ---")
@@ -109,6 +114,11 @@ def train_lewm(args: argparse.Namespace) -> None:
     # Set model type for args before creating config
     args.model = "lewm"
     config = TrainingConfig.from_args(args)
+    # Set dataset-specific weights directory if not specified
+    if args.weights_dir is None:
+        config.weights_dir = f"weights/lewm_{config.dataset}"
+    else:
+        config.weights_dir = args.weights_dir
     device = _get_device()
 
     print(f"--- Starting LeWorldModel Training on {device} ---")
@@ -302,7 +312,7 @@ def main() -> None:
     # --with-aug is in add_common_args, just set default to True
     add_common_args(jepa_parser)
     jepa_parser.set_defaults(func=train_jepa, with_aug=True)  # Enable aug by default for JEPA
-    
+
     # LeWM parser (multi-label presence/absence detection or counting)
     lewm_parser = subparsers.add_parser("lewm", help="Train LeWorldModel with multi-label tasks")
     lewm_parser.add_argument("--epochs", type=int, default=100)
