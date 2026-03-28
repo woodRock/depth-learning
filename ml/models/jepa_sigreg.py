@@ -176,7 +176,9 @@ class MultimodalJEPASigReg(nn.Module):
         # SigReg loss (optional)
         sigreg_loss = None
         if self.use_sigreg:
-            sigreg_loss = self.sigreg(context_latent)
+            # Reshape from (B, D) to (B, T=1, D) for SigReg
+            context_latent_3d = context_latent.unsqueeze(1)
+            sigreg_loss = self.sigreg(context_latent_3d)
         
         return predicted_target, target_latent, species_logits, recon_img, sigreg_loss
     
@@ -222,7 +224,9 @@ class MultimodalJEPASigReg(nn.Module):
         
         # SigReg loss
         if sigreg_loss is None and self.use_sigreg:
-            sigreg_loss = self.sigreg(predicted_target.flatten(1))
+            # Reshape from (B, D) to (B, T=1, D) for SigReg
+            predicted_target_3d = predicted_target.flatten(1).unsqueeze(1)
+            sigreg_loss = self.sigreg(predicted_target_3d)
         elif sigreg_loss is None:
             sigreg_loss = torch.tensor(0.0, device=predicted_target.device)
         
