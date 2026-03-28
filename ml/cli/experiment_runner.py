@@ -69,6 +69,7 @@ def run_experiments_from_yaml(yaml_path: str):
                     # These use TrainingConfig
                     # Map exp keys to config fields
                     conf = TrainingConfig(
+                        architecture=model_name,
                         model_type=exp.get("model_type", "transformer"),
                         epochs=exp.get("epochs", 80),
                         batch_size=exp.get("batch_size", 32),

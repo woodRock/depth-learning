@@ -128,12 +128,30 @@ class BaseTrainer(ABC):
         is_counting = "mae" in metrics["train"]
         
         # Prepare new entry
+        architecture = getattr(self.config, 'architecture', 'jepa')
+        if architecture == "lewm_plus":
+            display_arch = "LeWM++"
+        elif architecture == "lewm":
+            display_arch = "LeWM"
+        else:
+            display_arch = architecture.upper()
+
+        # Determine mode
+        if architecture in ["jepa", "lewm_plus", "fusion"]:
+            mode = "multi-modal"
+        elif architecture in ["lewm", "mae"]:
+            mode = "acoustic-only"
+        elif architecture == "translator":
+            mode = "cross-modal"
+        else:
+            mode = "visual"
+
         entry = {
-            "architecture": "LeWM++" if self.config.model_type == "lewm_plus" else ("LeWM" if self.config.model_type == "lewm" else "JEPA"),
-            "model_type": self.config.model_type,
+            "architecture": display_arch,
+            "model_type": getattr(self.config, 'model_type', 'default'),
             "dataset": self.config.dataset,
             "timestamp": datetime.datetime.now().isoformat(),
-            "mode": "multi-modal" if self.config.model_type in ["lewm_plus", "jepa"] else None,
+            "mode": mode,
             "task": "counting" if is_counting else "presence",
             "train": {},
             "val": {},
