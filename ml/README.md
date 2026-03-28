@@ -37,33 +37,83 @@ ml/
 
 ## Usage
 
-### Training Models
+### Quick Start: Train All Models
+
+Use the provided scripts to train all models on all datasets:
+
+**Linux/macOS:**
+```bash
+cd ml
+./train_all_models.sh              # Default: 100 epochs, 15 patience
+./train_all_models.sh 50 10        # Custom: 50 epochs, 10 patience
+```
+
+**Windows (PowerShell):**
+```powershell
+cd ml
+.\train_all_models.ps1             # Default: 100 epochs, 15 patience
+.\train_all_models.ps1 50 10       # Custom: 50 epochs, 10 patience
+```
+
+These scripts will:
+1. Create weight directories for each model/dataset combination
+2. Train JEPA (multi-modal) on easy, medium, hard, extreme
+3. Train LeWM (acoustic-only) on easy, medium, hard, extreme
+4. Save weights in the correct format for the Bevy simulation
+
+### Training Individual Models
 
 All training is done through the unified `train.py` script:
 
 ```bash
-# JEPA with Transformer encoder
-python ml/train.py jepa --model transformer --epochs 80 --with-aug
+# JEPA with Transformer encoder (multi-modal)
+python ml/train.py jepa --model transformer --epochs 100 --with-aug
 
 # JEPA with different encoders
-python ml/train.py jepa --model conv --epochs 80
-python ml/train.py jepa --model lstm --epochs 80
-python ml/train.py jepa --model ast --epochs 80
+python ml/train.py jepa --model conv --epochs 100
+python ml/train.py jepa --model lstm --epochs 100
+python ml/train.py jepa --model ast --epochs 100
 
-# LeWorldModel (end-to-end)
+# LeWorldModel (acoustic-only)
 python ml/train.py lewm --epochs 100 --sigreg-weight 0.1
 
-# Latent Decoder
-python ml/train.py decoder --epochs 50
+# With custom early stopping
+python ml/train.py jepa --dataset easy --epochs 100 --patience 20
+```
 
-# Fusion Model
-python ml/train.py fusion --epochs 50 --dropout-prob 0.5
+### Saving Weights for Bevy Simulation
 
-# Acoustic-to-Image Translator
-python ml/train.py translator --epochs 100 --d-model 256
+Weights must be saved in dataset-specific directories:
 
-# Masked Autoencoder (pre-training)
-python ml/train.py mae --epochs 100 --mask-ratio 0.75
+```bash
+# JEPA models
+python ml/train.py jepa --dataset easy --epochs 100 \
+    --weights-dir weights/jepa_easy
+
+python ml/train.py jepa --dataset extreme --epochs 100 \
+    --weights-dir weights/jepa_extreme
+
+# LeWM models
+python ml/train.py lewm --dataset easy --epochs 100 \
+    --weights-dir weights/lewm_easy
+
+python ml/train.py lewm --dataset extreme --epochs 100 \
+    --weights-dir weights/lewm_extreme
+```
+
+**Required directory structure:**
+```
+ml/weights/
+├── jepa_easy/
+│   ├── fish_clip_model.pth
+│   └── model_config.json
+├── jepa_medium/
+├── jepa_hard/
+├── jepa_extreme/
+├── lewm_easy/
+├── lewm_medium/
+├── lewm_hard/
+└── lewm_extreme/
 ```
 
 ### Common Options
@@ -255,6 +305,49 @@ All training is logged to Weights & Biases:
 - Per-class accuracy
 - Learning rate schedules
 - Generated images (for translator)
+
+## Evaluation
+
+### Test Evaluation in Bevy Simulation
+
+After training, evaluate models on **truly novel test data** using the Bevy simulation:
+
+1. **Start Python server:**
+   ```bash
+   cd ml
+   python3 serve.py
+   ```
+
+2. **Run Bevy simulation:**
+   ```bash
+   cargo run --release
+   ```
+
+3. **In the simulation UI:**
+   - Select Architecture (JEPA or LeWM)
+   - Select Dataset (easy/medium/hard/extreme)
+   - Select Training Mode (Multi-modal or Acoustic-Only)
+   - Click **"▶ Start Test Evaluation"**
+   - Generate samples by moving around in the simulation
+   - Watch live F1 score updates
+   - Click **"⏹ Stop & Save Results"** when done
+
+4. **Results are automatically saved** to `results.json`
+
+### Generating Results Table
+
+After evaluating all models:
+
+```bash
+cd ml
+python3 generate_table.py
+```
+
+This generates `table_combined.tex` with:
+- Multi-modal JEPA results
+- Acoustic-Only JEPA results
+- Acoustic-Only LeWM results
+- Shortcut test results (Easy↔Extreme cross-evaluation)
 
 ## Requirements
 
