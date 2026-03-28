@@ -341,6 +341,36 @@ class ImageLatentDataset(Dataset):
         return img
 
 
+class ImageLatentDataset(Dataset):
+    """Dataset for image-only data (used in decoder training)."""
+    
+    def __init__(self, data_dir: str, transform: Optional[Callable] = None):
+        self.data_dir = Path(data_dir)
+        self.transform = transform
+        self.visual_files = self._load_valid_samples()
+    
+    def _load_valid_samples(self) -> list:
+        """Load all valid samples with metadata."""
+        all_visuals = sorted(self.data_dir.glob("*_visual.png"))
+        valid_samples = []
+        
+        for v_path in all_visuals:
+            m_path = v_path.with_name(v_path.name.replace("_visual.png", "_meta.json"))
+            if m_path.exists():
+                valid_samples.append(v_path)
+        
+        return valid_samples
+    
+    def __len__(self) -> int:
+        return len(self.visual_files)
+    
+    def __getitem__(self, idx: int):
+        img = Image.open(self.visual_files[idx]).convert("RGB")
+        if self.transform:
+            img = self.transform(img)
+        return img
+
+
 def create_stratified_split(
     dataset: FishDataset,
     train_ratio: float = 0.8,
