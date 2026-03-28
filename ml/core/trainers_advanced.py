@@ -13,7 +13,7 @@ from tqdm import tqdm
 import wandb
 
 from .base import BaseTrainer
-from data.data import FishDataset, ImageLatentDataset
+from data import FishDataset, ImageLatentDataset
 
 
 class DecoderTrainer(BaseTrainer):
