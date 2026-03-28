@@ -231,13 +231,15 @@ class BaseTrainer(ABC):
         project_root = os.path.dirname(ml_dir)
         dataset_path = os.path.join(project_root, "dataset", self.config.dataset)
 
-        # Create dataset and split (same as training)
-        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="val", multi_label=True, task=task)
+        # Create dataset and split (EXACTLY as training)
+        # Use mode="train" to ensure balancing logic is applied if it was for training
+        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="train", multi_label=True, task=task)
         
         if len(full_dataset) == 0:
             print(f"  Warning: No samples found in {dataset_path}. Skipping acoustic-only evaluation.")
             return
 
+        # Use the same stratified split logic with the same seed
         train_indices, val_indices = create_stratified_split(full_dataset)
 
         # Evaluate on train split (acoustic-only)
@@ -249,6 +251,11 @@ class BaseTrainer(ABC):
         val_loader = torch.utils.data.DataLoader(val_ds, batch_size=self.config.batch_size, shuffle=False)
 
         # Evaluate acoustic-only
+        # Load the BEST model weights saved during training
+        best_weights_path = os.path.join(self.config.weights_dir, "fish_clip_model.pth")
+        if os.path.exists(best_weights_path):
+            self.model.load_state_dict(torch.load(best_weights_path, map_location=device, weights_only=True))
+        
         self.model.eval()
 
         if is_counting:
