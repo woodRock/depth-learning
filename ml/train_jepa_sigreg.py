@@ -91,7 +91,7 @@ def main():
                        help="Acoustic encoder type (default: transformer)")
     parser.add_argument("--embed-dim", type=int, default=256, help="Embedding dimension (default: 256)")
     parser.add_argument("--task", type=str, default="presence",
-                       choices=["presence", "single_label"],
+                       choices=["presence", "single_label", "counting"],
                        help="Task type (default: presence)")
     
     # SigReg settings

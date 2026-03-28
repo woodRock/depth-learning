@@ -230,7 +230,7 @@ impl TestEvaluation {
 // Model selection for evaluation
 #[derive(Resource, Default)]
 struct ModelSelection {
-    pub selected_architecture: String,   // "JEPA" or "LeWM"
+    pub selected_architecture: String,   // "JEPA", "JEPA_SigReg", or "LeWM"
     pub selected_dataset: String,        // "easy", "medium", "hard", "extreme"
     pub selected_model_type: String,     // "Multi-modal" or "Acoustic-Only"
     pub selected_test_dataset: String,   // For shortcut tests: "same" or difficulty name
@@ -249,6 +249,7 @@ impl ModelSelection {
             selected_test_dataset: "Same as Train".to_string(),
             architectures: vec![
                 "JEPA".to_string(),
+                "JEPA_SigReg".to_string(),
                 "LeWM".to_string(),
             ],
             datasets: vec![
@@ -272,9 +273,9 @@ impl ModelSelection {
     }
     
     fn get_available_model_types(&self, architecture: &str) -> Vec<String> {
-        // JEPA has both Multi-modal and Acoustic-Only
+        // JEPA and JEPA_SigReg have both Multi-modal and Acoustic-Only
         // LeWM only has Acoustic-Only
-        if architecture == "JEPA" {
+        if architecture == "JEPA" || architecture == "JEPA_SigReg" {
             vec!["Multi-modal".to_string(), "Acoustic-Only".to_string()]
         } else {
             vec!["Acoustic-Only".to_string()]

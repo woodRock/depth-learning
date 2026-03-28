@@ -168,7 +168,11 @@ async def evaluate(
     print(f"  Tested on: {actual_test_dataset} {'(SHORTCUT TEST)' if is_shortcut else ''}")
 
     # Load model from dataset-specific weights directory (trained on this dataset)
-    weights_dir = os.path.join(os.path.dirname(__file__), "weights", f"{architecture.lower()}_{dataset}")
+    if architecture == "JEPA_SigReg":
+        weights_dir = os.path.join(os.path.dirname(__file__), "weights", f"jepa_sigreg_{dataset}")
+    else:
+        weights_dir = os.path.join(os.path.dirname(__file__), "weights", f"{architecture.lower()}_{dataset}")
+    
     config_path = os.path.join(weights_dir, "model_config.json")
     weights_path = os.path.join(weights_dir, "fish_clip_model.pth")
 
@@ -180,10 +184,10 @@ async def evaluate(
         config = json.load(f)
 
     # Build model
-    arch_model_type = config.get("model_type", "transformer" if architecture == "JEPA" else "lewm")
+    arch_model_type = config.get("model_type", "transformer" if architecture != "LeWM" else "lewm")
     task = config.get("task", "presence")
 
-    if architecture == "JEPA":
+    if architecture in ["JEPA", "JEPA_SigReg"]:
         from models.acoustic import ConvEncoder, TransformerEncoder
         from models.jepa import CrossModalJEPA
 
@@ -194,12 +198,25 @@ async def evaluate(
         else:
             ac_encoder = TransformerEncoder(embed_dim=embed_dim)
 
-        eval_model = CrossModalJEPA(
-            ac_encoder=ac_encoder,
-            embed_dim=embed_dim,
-            use_focal_loss=True,
-            task=task,
-        ).to(device)
+        if architecture == "JEPA_SigReg":
+            # Load JEPA+SigReg model
+            from models.jepa_sigreg import MultimodalJEPASigReg
+            eval_model = MultimodalJEPASigReg(
+                ac_encoder=ac_encoder,
+                embed_dim=embed_dim,
+                use_focal_loss=True,
+                task=task,
+                use_sigreg=True,
+                sigreg_weight=config.get("config", {}).get("sigreg_weight", 0.1),
+            ).to(device)
+        else:
+            # Load standard JEPA model
+            eval_model = CrossModalJEPA(
+                ac_encoder=ac_encoder,
+                embed_dim=embed_dim,
+                use_focal_loss=True,
+                task=task,
+            ).to(device)
 
     elif architecture == "LeWM":
         from models.lewm_multilabel import LeWorldModelMultiLabel
