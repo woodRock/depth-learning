@@ -120,7 +120,9 @@ class BaseTrainer(ABC):
 
     def _record_final_results(self, metrics: Dict[str, Any]) -> None:
         """Append the best metrics to results.json (multi-modal for JEPA)."""
-        results_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results.json")
+        results_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
+        os.makedirs(results_dir, exist_ok=True)
+        results_path = os.path.join(results_dir, "results.json")
 
         # Determine task type from metrics keys
         is_counting = "mae" in metrics["train"]
@@ -185,7 +187,9 @@ class BaseTrainer(ABC):
 
     def _record_acoustic_only_results(self, metrics: Dict[str, Any]) -> None:
         """Append acoustic-only evaluation entry for JEPA to results.json."""
-        results_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results.json")
+        results_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
+        os.makedirs(results_dir, exist_ok=True)
+        results_path = os.path.join(results_dir, "results.json")
 
         print("\nEvaluating acoustic-only performance...")
 
