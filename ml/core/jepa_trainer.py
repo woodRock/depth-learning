@@ -324,6 +324,9 @@ class JEPATrainer(BaseTrainer):
 
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Use task-appropriate metric for model selection."""
+        # For counting task, use negative MAE (higher is better)
+        if "mae" in val_metrics:
+            return -val_metrics["mae"]
         # For presence task, use F1 (higher is better)
         if val_metrics.get("f1", 0) > 0:
             return val_metrics["f1"]
