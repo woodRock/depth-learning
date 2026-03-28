@@ -110,15 +110,15 @@ class LeWMTrainer(BaseTrainer):
                 pred_counts = pred_counts.clamp(min=0)  # Ensure non-negative
                 labels_counts = labels.clamp(min=0)
                 
-                mae = F.l1_loss(pred_counts, labels_counts)
-                rmse = torch.sqrt(F.mse_loss(pred_counts, labels_counts))
+                mae = F.l1_loss(pred_counts, labels_counts, reduction='sum')
+                mse = F.mse_loss(pred_counts, labels_counts, reduction='sum')
                 
                 total_mae += mae.item()
-                total_rmse += rmse.item()
+                total_rmse += mse.item()
                 
                 pbar.set_postfix({
                     "loss": f"{loss.item():.3f}",
-                    "mae": f"{mae.item():.3f}",
+                    "mae": f"{mae.item()/labels.shape[0]:.3f}",
                 })
             else:
                 # Presence/absence metrics: precision, recall, F1
@@ -173,8 +173,8 @@ class LeWMTrainer(BaseTrainer):
             "f1_snapper": class_f1[1].item(),
             "f1_cod": class_f1[2].item(),
             "f1_empty": class_f1[3].item(),
-            "mae": total_mae / len(loader) if len(loader) > 0 else 0,
-            "rmse": total_rmse / len(loader) if len(loader) > 0 else 0,
+            "mae": total_mae / total_samples if total_samples > 0 else 0,
+            "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item() if total_samples > 0 else 0,
         }
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
@@ -239,10 +239,10 @@ class LeWMTrainer(BaseTrainer):
                     pred_counts = pred_counts.clamp(min=0)
                     labels_counts = labels.clamp(min=0)
                     
-                    mae = F.l1_loss(pred_counts, labels_counts)
-                    rmse = torch.sqrt(F.mse_loss(pred_counts, labels_counts))
+                    mae = F.l1_loss(pred_counts, labels_counts, reduction='sum')
+                    mse = F.mse_loss(pred_counts, labels_counts, reduction='sum')
                     total_mae += mae.item()
-                    total_rmse += rmse.item()
+                    total_rmse += mse.item()
                 else:
                     # Presence/absence: precision, recall, F1
                     probs = torch.sigmoid(species_logits)
@@ -291,8 +291,8 @@ class LeWMTrainer(BaseTrainer):
             "precision": total_precision / total_samples,
             "recall": total_recall / total_samples,
             "f1": total_f1 / total_samples,
-            "mae": total_mae / len(loader) if len(loader) > 0 else 0,
-            "rmse": total_rmse / len(loader) if len(loader) > 0 else 0,
+            "mae": total_mae / total_samples if total_samples > 0 else 0,
+            "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item() if total_samples > 0 else 0,
             "f1_kingfish": class_f1[0].item(),
             "f1_snapper": class_f1[1].item(),
             "f1_cod": class_f1[2].item(),
@@ -303,11 +303,13 @@ class LeWMTrainer(BaseTrainer):
 
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Use task-appropriate metric for model selection."""
-        # For counting task, use negative MAE (lower is better)
-        if val_metrics.get("mae", 0) > 0 and val_metrics.get("f1", 0) == 0:
-            return -val_metrics["mae"]  # Negative because lower MAE is better
+        # For counting task, use negative MAE (higher is better)
+        if "mae" in val_metrics:
+            return -val_metrics["mae"]
         # For presence task, use F1 (higher is better)
-        return val_metrics["f1"]
+        if val_metrics.get("f1", 0) > 0:
+            return val_metrics["f1"]
+        return val_metrics.get("acc", 0)
 
 
 def get_trainer(config: TrainingConfig, device: torch.device) -> BaseTrainer:

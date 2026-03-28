@@ -99,15 +99,16 @@ class LeWMPlusTrainer(BaseTrainer):
                 pred_counts = species_logits.clamp(min=0)
                 true_counts = labels.clamp(min=0)
 
-                mae = F.l1_loss(pred_counts, true_counts)
-                rmse = torch.sqrt(F.mse_loss(pred_counts, true_counts))
+                mae = F.l1_loss(pred_counts, true_counts, reduction='sum')
+                mse = F.mse_loss(pred_counts, true_counts, reduction='sum')
 
                 total_mae += mae.item()
-                total_rmse += rmse.item()
+                total_rmse += mse.item()
+                total_samples += labels.shape[0]
 
                 pbar.set_postfix({
                     "loss": f"{loss.item():.3f}",
-                    "mae": f"{mae.item():.3f}",
+                    "mae": f"{mae.item()/labels.shape[0]:.3f}",
                 })
             else:
                 # Multi-label metrics
@@ -150,8 +151,8 @@ class LeWMPlusTrainer(BaseTrainer):
                 "loss_jepa": total_loss_jepa / len(loader),
                 "loss_cls": total_loss_cls / len(loader),
                 "loss_sigreg": total_loss_sigreg / len(loader),
-                "mae": total_mae / len(loader),
-                "rmse": total_rmse / len(loader),
+                "mae": total_mae / total_samples if total_samples > 0 else 0,
+                "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item() if total_samples > 0 else 0,
             }
         else:
             # Per-class F1
@@ -223,11 +224,12 @@ class LeWMPlusTrainer(BaseTrainer):
                     pred_counts = species_logits.clamp(min=0)
                     true_counts = labels.clamp(min=0)
 
-                    mae = F.l1_loss(pred_counts, true_counts)
-                    rmse = torch.sqrt(F.mse_loss(pred_counts, true_counts))
+                    mae = F.l1_loss(pred_counts, true_counts, reduction='sum')
+                    mse = F.mse_loss(pred_counts, true_counts, reduction='sum')
 
                     total_mae += mae.item()
-                    total_rmse += rmse.item()
+                    total_rmse += mse.item()
+                    total_samples += labels.shape[0]
                 else:
                     # Multi-label metrics
                     probs = torch.sigmoid(species_logits)
@@ -265,8 +267,8 @@ class LeWMPlusTrainer(BaseTrainer):
                 "loss_cls": total_loss_cls / len(loader),
                 "loss_sigreg": total_loss_sigreg / len(loader),
                 "sim": total_sim / len(loader),
-                "mae": total_mae / len(loader),
-                "rmse": total_rmse / len(loader),
+                "mae": total_mae / total_samples if total_samples > 0 else 0,
+                "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item() if total_samples > 0 else 0,
             }
         else:
             # Per-class F1

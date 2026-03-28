@@ -141,16 +141,16 @@ class JEPATrainer(BaseTrainer):
             pred_counts = species_logits.clamp(min=0)
             true_counts = labels.clamp(min=0)
             
-            mae = F.l1_loss(pred_counts, true_counts)
-            rmse = torch.sqrt(F.mse_loss(pred_counts, true_counts))
+            mae = F.l1_loss(pred_counts, true_counts, reduction='sum')
+            mse = F.mse_loss(pred_counts, true_counts, reduction='sum')
             
-            total_mae += mae.item() * len(labels)
-            total_rmse += rmse.item() * len(labels)
-            total_samples += len(labels)
+            total_mae += mae.item()
+            total_rmse += mse.item()
+            total_samples += labels.shape[0]
             
             pbar.set_postfix({
                 "loss": f"{loss.item():.3f}",
-                "mae": f"{mae.item():.3f}",
+                "mae": f"{mae.item()/labels.shape[0]:.3f}",
             })
         else:
             # Single-label: accuracy
@@ -274,12 +274,12 @@ class JEPATrainer(BaseTrainer):
                     pred_counts = species_logits.clamp(min=0)
                     true_counts = labels.clamp(min=0)
                     
-                    mae = F.l1_loss(pred_counts, true_counts)
-                    rmse = torch.sqrt(F.mse_loss(pred_counts, true_counts))
+                    mae = F.l1_loss(pred_counts, true_counts, reduction='sum')
+                    mse = F.mse_loss(pred_counts, true_counts, reduction='sum')
                     
-                    total_mae += mae.item() * len(labels)
-                    total_rmse += rmse.item() * len(labels)
-                    total_samples += len(labels)
+                    total_mae += mae.item()
+                    total_rmse += mse.item()
+                    total_samples += labels.shape[0]
                 else:
                     # Single-label: accuracy
                     preds = torch.argmax(species_logits, dim=1)
@@ -313,7 +313,7 @@ class JEPATrainer(BaseTrainer):
                 "loss_cls": total_loss_cls / len(loader),
                 "sim": total_sim / len(loader),
                 "mae": total_mae / total_samples,
-                "rmse": total_rmse / total_samples,
+                "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item(),
             }
         else:
             return {
