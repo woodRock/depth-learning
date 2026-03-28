@@ -1,22 +1,24 @@
-# Core ML
+# Core dependencies
 torch>=2.0.0
 torchvision>=0.15.0
-
-# Data Processing
 numpy>=1.24.0
-Pillow>=9.5.0
-scikit-learn>=1.2.0
-tqdm>=4.65.0
+pillow>=9.0.0
 
-# API Server
+# Server
 fastapi>=0.100.0
 uvicorn>=0.23.0
 python-multipart>=0.0.6
 
-# Experiment Tracking
-wandb>=0.15.0
+# Experiment management
+pyyaml>=6.0
+pydantic>=2.0.0
+click>=8.0.0
+
+# Utilities
+tqdm>=4.65.0
 python-dotenv>=1.0.0
 
 # Development
-ruff>=0.15.0
-
+pytest>=7.0.0
+black>=23.0.0
+mypy>=1.0.0
