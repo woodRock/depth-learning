@@ -24,9 +24,11 @@ from .base import BaseTrainer
 class LeWMTrainer(BaseTrainer):
     """Trainer for LeWorldModel with multi-label presence/absence or counting."""
 
-    def build_model(self, task: str = "presence") -> nn.Module:
+    def build_model(self) -> nn.Module:
         """Build LeWorldModel with task-specific head."""
         from models.lewm_multilabel import LeWorldModelMultiLabel
+
+        task = getattr(self.config, 'task', 'presence')
 
         return LeWorldModelMultiLabel(
             embed_dim=self.config.embed_dim,
@@ -171,8 +173,8 @@ class LeWMTrainer(BaseTrainer):
             "f1_snapper": class_f1[1].item(),
             "f1_cod": class_f1[2].item(),
             "f1_empty": class_f1[3].item(),
-            "mae": total_mae / total_samples if total_samples > 0 else 0,
-            "rmse": total_rmse / total_samples if total_samples > 0 else 0,
+            "mae": total_mae / len(loader) if len(loader) > 0 else 0,
+            "rmse": total_rmse / len(loader) if len(loader) > 0 else 0,
         }
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
@@ -289,8 +291,8 @@ class LeWMTrainer(BaseTrainer):
             "precision": total_precision / total_samples,
             "recall": total_recall / total_samples,
             "f1": total_f1 / total_samples,
-            "mae": total_mae / total_samples if total_samples > 0 else 0,
-            "rmse": total_rmse / total_samples if total_samples > 0 else 0,
+            "mae": total_mae / len(loader) if len(loader) > 0 else 0,
+            "rmse": total_rmse / len(loader) if len(loader) > 0 else 0,
             "f1_kingfish": class_f1[0].item(),
             "f1_snapper": class_f1[1].item(),
             "f1_cod": class_f1[2].item(),

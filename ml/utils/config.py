@@ -22,6 +22,7 @@ class TrainingConfig:
 
     # Dataset settings
     dataset: Literal["easy", "medium", "hard", "extreme"] = "easy"
+    task: str = "presence"
     n_chunks: int = 10
 
     # Augmentation settings
@@ -58,6 +59,7 @@ class TrainingConfig:
             learning_rate=getattr(args, 'lr', 3e-4),
             weight_decay=getattr(args, 'weight_decay', 0.05),
             dataset=getattr(args, 'dataset', "easy"),
+            task=getattr(args, 'task', "presence"),
             n_chunks=getattr(args, 'n_chunks', 10),
             with_aug=getattr(args, 'with_aug', False),
             light_aug=getattr(args, 'light_aug', False),

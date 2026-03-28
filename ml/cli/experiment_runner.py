@@ -75,6 +75,7 @@ def run_experiments_from_yaml(yaml_path: str):
                         batch_size=exp.get("batch_size", 32),
                         learning_rate=exp.get("lr", 3e-4),
                         dataset=dataset,
+                        task=mock_args.task,
                         sigreg_weight=exp.get("sigreg_weight", 0.1),
                         with_aug=exp.get("with_aug", True)
                     )

@@ -24,12 +24,14 @@ from .base import BaseTrainer
 class JEPATrainer(BaseTrainer):
     """Trainer for JEPA (Joint Embedding Predictive Architecture) models."""
     
-    def build_model(self, task: str = "presence") -> nn.Module:
+    def build_model(self) -> nn.Module:
         """Build JEPA model with specified acoustic encoder."""
         from models.acoustic import ConvEncoder, TransformerEncoder
         from models.lstm import AcousticLSTM
         from models.ast import AcousticAST
         from models.jepa import CrossModalJEPA
+
+        task = getattr(self.config, 'task', 'presence')
 
         if self.config.model_type == "conv":
             ac_encoder = ConvEncoder(embed_dim=self.config.embed_dim)
