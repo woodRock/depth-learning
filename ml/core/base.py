@@ -120,18 +120,18 @@ class BaseTrainer(ABC):
 
     def _record_final_results(self, metrics: Dict[str, Any]) -> None:
         """Append the best metrics to results.json (multi-modal for JEPA)."""
-        results_path = os.path.join(os.path.dirname(__file__), "results.json")
+        results_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results.json")
 
         # Determine task type from metrics keys
         is_counting = "mae" in metrics["train"]
         
         # Prepare new entry
         entry = {
-            "architecture": "LeWM" if self.config.model_type == "lewm" else "JEPA",
+            "architecture": "LeWM++" if self.config.model_type == "lewm_plus" else ("LeWM" if self.config.model_type == "lewm" else "JEPA"),
             "model_type": self.config.model_type,
             "dataset": self.config.dataset,
             "timestamp": datetime.datetime.now().isoformat(),
-            "mode": "multi-modal" if self.config.model_type != "lewm" else None,
+            "mode": "multi-modal" if self.config.model_type in ["lewm_plus", "jepa"] else None,
             "task": "counting" if is_counting else "presence",
             "train": {},
             "val": {},
@@ -185,7 +185,7 @@ class BaseTrainer(ABC):
 
     def _record_acoustic_only_results(self, metrics: Dict[str, Any]) -> None:
         """Append acoustic-only evaluation entry for JEPA to results.json."""
-        results_path = os.path.join(os.path.dirname(__file__), "results.json")
+        results_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results.json")
 
         print("\nEvaluating acoustic-only performance...")
 
