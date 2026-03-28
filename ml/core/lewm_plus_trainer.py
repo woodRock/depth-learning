@@ -24,10 +24,12 @@ from .base import BaseTrainer
 class LeWMPlusTrainer(BaseTrainer):
     """Trainer for LeWM++ (Multi-modal JEPA with SigReg regularization)."""
 
-    def build_model(self, task: str = "presence") -> nn.Module:
+    def build_model(self) -> nn.Module:
         """Build LeWM++ model."""
         from models.acoustic import TransformerEncoder
         from models.lewm_plus import LeWMPlus
+
+        task = getattr(self.config, 'task', 'presence')
 
         ac_encoder = TransformerEncoder(embed_dim=self.config.embed_dim)
 
