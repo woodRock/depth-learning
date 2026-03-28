@@ -3,7 +3,7 @@
   "config": {
     "model_type": "lewm",
     "embed_dim": 256,
-    "epochs": 10,
+    "epochs": 1,
     "batch_size": 32,
     "learning_rate": 0.0003,
     "weight_decay": 0.05,
@@ -15,9 +15,11 @@
     "label_smoothing": 0.1,
     "use_focal_loss": true,
     "sigreg_weight": 0.1,
+    "early_stop_patience": 15,
+    "early_stop_min_delta": 0.001,
     "wandb_entity": "victoria-university-of-wellington",
     "wandb_project": "depth-learning",
-    "weights_dir": "weights/lewm_easy"
+    "weights_dir": "C:\\Users\\woodj\\depth-learning\\ml\\weights\\lewm_easy"
   },
   "task": "presence"
 }

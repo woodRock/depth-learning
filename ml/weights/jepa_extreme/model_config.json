@@ -3,7 +3,7 @@
   "config": {
     "model_type": "transformer",
     "embed_dim": 256,
-    "epochs": 100,
+    "epochs": 1,
     "batch_size": 32,
     "learning_rate": 0.0003,
     "weight_decay": 0.05,
@@ -19,7 +19,7 @@
     "early_stop_min_delta": 0.001,
     "wandb_entity": "victoria-university-of-wellington",
     "wandb_project": "depth-learning",
-    "weights_dir": "weights/jepa_extreme"
+    "weights_dir": "C:\\Users\\woodj\\depth-learning\\ml\\weights\\jepa_extreme"
   },
   "task": "presence"
 }
