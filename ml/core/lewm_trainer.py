@@ -58,11 +58,14 @@ class LeWMTrainer(BaseTrainer):
         total_mae = 0
         total_rmse = 0
         total_samples = 0
-        
+
         # Per-class F1
         class_tp = torch.zeros(4)
         class_fp = torch.zeros(4)
         class_fn = torch.zeros(4)
+
+        # Get task once at the beginning
+        task = getattr(self.model, 'task', 'presence')
 
         pbar = tqdm(loader, desc="Training")
         for vis, ac, labels in pbar:
@@ -103,7 +106,7 @@ class LeWMTrainer(BaseTrainer):
             total_loss_recon += recon_loss.item()
 
             # Compute task-specific metrics
-            if hasattr(self.model, 'task') and self.model.task == "counting":
+            if task == "counting":
                 # Counting metrics: MAE, RMSE on original scale
                 # Apply same scaling as loss: tanh(x/5) * 30
                 pred_counts = torch.tanh(species_logits / 5.0) * 30.0
@@ -202,12 +205,15 @@ class LeWMTrainer(BaseTrainer):
         last_recon = None
         last_target = None
 
+        # Get task once at the beginning
+        task = getattr(self.model, 'task', 'presence')
+
         with torch.no_grad():
             for vis, ac, labels in loader:
                 vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
 
                 pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
-                
+
                 # Compute reconstruction target (denormalize visual image)
                 if self.model.use_decoder:
                     inv_normalize = transforms.Normalize(
@@ -233,7 +239,7 @@ class LeWMTrainer(BaseTrainer):
                 total_loss_recon += recon_loss.item()
 
                 # Compute task-specific metrics
-                if hasattr(self.model, 'task') and self.model.task == "counting":
+                if task == "counting":
                     # Counting: MAE, RMSE on original scale
                     pred_counts = torch.tanh(species_logits / 5.0) * 30.0
                     pred_counts = pred_counts.clamp(min=0)

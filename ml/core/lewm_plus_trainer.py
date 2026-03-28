@@ -66,6 +66,9 @@ class LeWMPlusTrainer(BaseTrainer):
 
         total_samples = 0
 
+        # Get task once at the beginning
+        task = getattr(self.model, 'task', 'presence')
+
         pbar = tqdm(loader, desc="Training")
         for vis, ac, labels in pbar:
             vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
@@ -94,7 +97,7 @@ class LeWMPlusTrainer(BaseTrainer):
             total_loss_sigreg += loss_sigreg.item() if sigreg_loss is not None else 0
 
             # Task-specific metrics
-            if self.model.task == "counting":
+            if task == "counting":
                 # Counting metrics: MAE, RMSE
                 pred_counts = species_logits.clamp(min=0)
                 true_counts = labels.clamp(min=0)
@@ -145,7 +148,7 @@ class LeWMPlusTrainer(BaseTrainer):
                 })
 
         # Compute final metrics
-        if self.model.task == "counting":
+        if task == "counting":
             return {
                 "loss": total_loss / len(loader),
                 "loss_jepa": total_loss_jepa / len(loader),
@@ -194,6 +197,9 @@ class LeWMPlusTrainer(BaseTrainer):
         class_fn = torch.zeros(4)
         total_samples = 0
 
+        # Get task once at the beginning
+        task = getattr(self.model, 'task', 'presence')
+
         with torch.no_grad():
             for vis, ac, labels in loader:
                 vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
@@ -219,7 +225,7 @@ class LeWMPlusTrainer(BaseTrainer):
                 total_sim += sim.item()
 
                 # Task-specific metrics
-                if self.model.task == "counting":
+                if task == "counting":
                     # Counting metrics: MAE, RMSE
                     pred_counts = species_logits.clamp(min=0)
                     true_counts = labels.clamp(min=0)
@@ -260,7 +266,7 @@ class LeWMPlusTrainer(BaseTrainer):
                     total_samples += labels.shape[0]
 
         # Compute final metrics
-        if self.model.task == "counting":
+        if task == "counting":
             return {
                 "loss": total_loss / len(loader),
                 "loss_jepa": total_loss_jepa / len(loader),
