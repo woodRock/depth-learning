@@ -60,3 +60,7 @@ tmp/
 temp/
 *.tmp
 
+ml/wandb/
+ml/weights/
+ml/__pycache__/
+ml/*/__pycache__/

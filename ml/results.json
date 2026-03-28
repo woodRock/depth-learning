@@ -1,0 +1,41 @@
+[
+  {
+    "architecture": "JEPA",
+    "model_type": "transformer",
+    "dataset": "easy",
+    "timestamp": "2026-03-29T00:50:42.947907",
+    "mode": "multi-modal",
+    "task": "counting",
+    "train": {
+      "loss": 2.1301253992935707,
+      "mae": 0.5950164794921875,
+      "rmse": 1.1828645467758179
+    },
+    "val": {
+      "loss": 2.0941872163252397,
+      "mae": 0.5002811047009059,
+      "rmse": 0.996383363859994,
+      "sim": 0.6199449029835787
+    },
+    "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "transformer",
+    "dataset": "easy",
+    "timestamp": "2026-03-29T00:51:01.684436",
+    "mode": "acoustic_only",
+    "task": "counting",
+    "train": {
+      "loss": 0,
+      "mae": 0.5294843915530614,
+      "rmse": 1.0472382375172207
+    },
+    "val": {
+      "loss": 0,
+      "mae": 0.529868163721902,
+      "rmse": 1.0483303437914167
+    },
+    "test": null
+  }
+]

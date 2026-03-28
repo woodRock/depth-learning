@@ -1,81 +1,152 @@
-"""Configuration utilities for depth learning."""
+"""Configuration management for training pipelines."""
 
-import json
-import yaml
-from pathlib import Path
-from typing import Any, Dict, Union
-
-
-def load_config(path: Union[str, Path]) -> Dict[str, Any]:
-    """
-    Load configuration from YAML or JSON file.
-    
-    Args:
-        path: Path to configuration file
-    
-    Returns:
-        Configuration dictionary
-    
-    Raises:
-        FileNotFoundError: If config file doesn't exist
-        ValueError: If file format is not supported
-    """
-    path = Path(path)
-    
-    if not path.exists():
-        raise FileNotFoundError(f"Config file not found: {path}")
-    
-    with open(path, 'r') as f:
-        if path.suffix in ['.yaml', '.yml']:
-            config = yaml.safe_load(f)
-        elif path.suffix == '.json':
-            config = json.load(f)
-        else:
-            raise ValueError(f"Unsupported config format: {path.suffix}")
-    
-    return config or {}
+from dataclasses import dataclass, field
+from typing import Optional, Literal
+import argparse
 
 
-def save_config(config: Dict[str, Any], path: Union[str, Path]) -> None:
-    """
-    Save configuration to YAML or JSON file.
+@dataclass
+class TrainingConfig:
+    """Base configuration for all training pipelines."""
+
+    # Model settings
+    model_type: str = "transformer"
+    embed_dim: int = 256
+
+    # Training settings
+    epochs: int = 80
+    batch_size: int = 32
+    learning_rate: float = 3e-4
+    weight_decay: float = 0.05
+
+    # Dataset settings
+    dataset: Literal["easy", "medium", "hard", "extreme"] = "easy"
+    n_chunks: int = 10
+
+    # Augmentation settings
+    with_aug: bool = False
+    light_aug: bool = False
+    rotation_degrees: int = 30
+
+    # Loss settings
+    label_smoothing: float = 0.1
+    use_focal_loss: bool = True
+
+    # LeWM specific
+    sigreg_weight: float = 0.1
+
+    # Early stopping
+    early_stop_patience: int = 15  # Stop if no improvement for N epochs
+    early_stop_min_delta: float = 0.001  # Minimum improvement to count as progress
+
+    # Logging
+    wandb_entity: str = "victoria-university-of-wellington"
+    wandb_project: str = "depth-learning"
+
+    # Paths
+    weights_dir: str = "weights"
     
-    Args:
-        config: Configuration dictionary
-        path: Path to save configuration
-    
-    Raises:
-        ValueError: If file format is not supported
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(path, 'w') as f:
-        if path.suffix in ['.yaml', '.yml']:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-        elif path.suffix == '.json':
-            json.dump(config, f, indent=2)
-        else:
-            raise ValueError(f"Unsupported config format: {path.suffix}")
+    @classmethod
+    def from_args(cls, args: argparse.Namespace) -> "TrainingConfig":
+        """Create config from argparse namespace."""
+        return cls(
+            model_type=args.model,
+            epochs=args.epochs,
+            batch_size=args.batch_size,
+            learning_rate=args.lr,
+            weight_decay=args.weight_decay,
+            dataset=args.dataset,
+            n_chunks=args.n_chunks,
+            with_aug=args.with_aug,
+            light_aug=args.light_aug,
+            rotation_degrees=args.rotation_degrees,
+            label_smoothing=getattr(args, 'label_smoothing', 0.1),
+            use_focal_loss=getattr(args, 'use_focal_loss', True),
+            sigreg_weight=args.sigreg_weight,
+        )
 
 
-def merge_configs(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Merge two configurations, with override taking precedence.
+@dataclass
+class DecoderConfig:
+    """Configuration for decoder training."""
     
-    Args:
-        base: Base configuration
-        override: Override configuration
+    dataset: Literal["easy", "medium", "hard"] = "easy"
+    with_aug: bool = False
+    epochs: int = 50
+    batch_size: int = 16
+    learning_rate: float = 1e-3
+    weights_dir: str = "weights"
+    wandb_project: str = "depth-learning"
+
+
+@dataclass
+class FusionConfig:
+    """Configuration for fusion model training."""
     
-    Returns:
-        Merged configuration
-    """
-    result = base.copy()
+    epochs: int = 50
+    batch_size: int = 32
+    learning_rate: float = 1e-4
+    dropout_prob: float = 0.5
+    dataset: Literal["easy", "medium", "hard"] = "easy"
+    with_aug: bool = False
+    weights_dir: str = "weights"
+    wandb_project: str = "depth-learning"
+
+
+@dataclass
+class TranslatorConfig:
+    """Configuration for acoustic-to-image translator training."""
     
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = merge_configs(result[key], value)
-        else:
-            result[key] = value
+    epochs: int = 100
+    batch_size: int = 16
+    learning_rate: float = 1e-4
+    dataset: Literal["easy", "medium", "hard"] = "easy"
+    with_aug: bool = False
+    d_model: int = 256
+    patch_size: int = 16
+    weights_dir: str = "weights"
+    wandb_entity: str = "victoria-university-of-wellington"
+    wandb_project: str = "depth-learning"
+
+
+@dataclass
+class MAEConfig:
+    """Configuration for masked autoencoder training."""
     
-    return result
+    epochs: int = 100
+    batch_size: int = 64
+    learning_rate: float = 1e-3
+    mask_ratio: float = 0.75
+    dataset: Literal["easy", "medium", "hard"] = "easy"
+    with_aug: bool = False
+    weights_dir: str = "weights"
+    wandb_project: str = "depth-learning"
+
+
+def add_common_args(parser: argparse.ArgumentParser) -> None:
+    """Add common arguments to argument parser."""
+    parser.add_argument(
+        "--dataset",
+        type=str,
+        default="easy",
+        choices=["easy", "medium", "hard", "extreme"],
+        help="Dataset difficulty level (default: easy)"
+    )
+    parser.add_argument(
+        "--with-aug", 
+        action="store_true", 
+        default=False,
+        help="Enable data augmentation (default: disabled)"
+    )
+    parser.add_argument(
+        "--light-aug", 
+        action="store_true", 
+        default=False,
+        help="Use light augmentation (only horizontal flip)"
+    )
+    parser.add_argument(
+        "--weights-dir", 
+        type=str, 
+        default="weights",
+        help="Directory to save model weights"
+    )
