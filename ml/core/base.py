@@ -207,10 +207,19 @@ class BaseTrainer(ABC):
 
         # Create evaluation transform (no augmentation)
         eval_transform = create_visual_transform(AugmentationConfig(enabled=False))
-        dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", self.config.dataset))
+        
+        # Correctly resolve project root dataset path
+        ml_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_root = os.path.dirname(ml_dir)
+        dataset_path = os.path.join(project_root, "dataset", self.config.dataset)
 
         # Create dataset and split (same as training)
         full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="val", multi_label=True, task=task)
+        
+        if len(full_dataset) == 0:
+            print(f"  Warning: No samples found in {dataset_path}. Skipping acoustic-only evaluation.")
+            return
+
         train_indices, val_indices = create_stratified_split(full_dataset)
 
         # Evaluate on train split (acoustic-only)
@@ -248,8 +257,8 @@ class BaseTrainer(ABC):
 
                 return {
                     "loss": 0,
-                    "mae": total_mae / total_samples,
-                    "rmse": total_rmse / total_samples,
+                    "mae": total_mae / total_samples if total_samples > 0 else 0,
+                    "rmse": total_rmse / total_samples if total_samples > 0 else 0,
                 }
 
             acoustic_train_metrics = evaluate_acoustic(train_loader)
