@@ -3,7 +3,7 @@
   "config": {
     "model_type": "transformer",
     "embed_dim": 256,
-    "epochs": 1,
+    "epochs": 100,
     "batch_size": 32,
     "learning_rate": 0.0003,
     "weight_decay": 0.05,

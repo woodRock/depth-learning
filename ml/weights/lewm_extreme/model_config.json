@@ -15,9 +15,11 @@
     "label_smoothing": 0.1,
     "use_focal_loss": true,
     "sigreg_weight": 0.1,
+    "early_stop_patience": 15,
+    "early_stop_min_delta": 0.001,
     "wandb_entity": "victoria-university-of-wellington",
     "wandb_project": "depth-learning",
-    "weights_dir": "weights/lewm_extreme"
+    "weights_dir": "C:\\Users\\woodj\\depth-learning\\ml\\weights\\lewm_extreme"
   },
   "task": "presence"
 }
