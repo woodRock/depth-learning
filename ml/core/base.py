@@ -387,7 +387,19 @@ class BaseTrainer(ABC):
         wandb.log(log_dict)
     
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
-        """Get score used for model selection."""
+        """Get score used for model selection.
+        
+        For counting tasks: returns negative MAE (lower MAE = higher score = better)
+        For presence tasks: returns F1 score (higher = better)
+        For single-label: returns accuracy (higher = better)
+        """
+        # Counting task: minimize MAE, so negate it (higher is better)
+        if "mae" in val_metrics:
+            return -val_metrics["mae"]
+        # Presence task: maximize F1
+        if "f1" in val_metrics and val_metrics["f1"] > 0:
+            return val_metrics["f1"]
+        # Single-label classification: maximize accuracy
         return val_metrics.get("acc", 0.0)
     
     def _save_model(self, epoch: int) -> None:
