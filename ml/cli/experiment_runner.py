@@ -63,7 +63,9 @@ def run_experiments_from_yaml(yaml_path: str):
                 mock_args.seed = seed
                 mock_args.task = exp.get("task", "presence")
                 mock_args.weights_dir = f"weights/{model_name}_{dataset}_seed{seed}"
-                
+                mock_args.patience = exp.get("patience", 15)
+                mock_args.min_delta = exp.get("min_delta", 0.001)
+
                 # Create specific config object based on model name
                 if model_name in ["jepa", "lewm", "lewm_plus"]:
                     # These use TrainingConfig
@@ -77,7 +79,9 @@ def run_experiments_from_yaml(yaml_path: str):
                         dataset=dataset,
                         task=mock_args.task,
                         sigreg_weight=exp.get("sigreg_weight", 0.1),
-                        with_aug=exp.get("with_aug", True)
+                        with_aug=exp.get("with_aug", True),
+                        early_stop_patience=mock_args.patience,
+                        early_stop_min_delta=mock_args.min_delta,
                     )
                     job_type = f"exp-{model_name}-{dataset}-{mock_args.task}"
                 elif model_name == "decoder":

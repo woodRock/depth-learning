@@ -59,6 +59,8 @@ python3 main.py train <model> [options]
 | `--lr` | Learning rate | varies |
 | `--task` | Task type (presence/counting) | presence |
 | `--with-aug` | Enable data augmentation | false |
+| `--patience` | Early stopping patience (epochs without improvement) | 15 |
+| `--min-delta` | Minimum improvement to count as progress | 0.001 |
 | `--weights-dir` | Custom weights directory | auto |
 
 #### Examples
@@ -81,6 +83,9 @@ python3 main.py train fusion --dataset extreme --epochs 50 --lr 1e-4
 
 # Train Decoder for image reconstruction
 python3 main.py train decoder --dataset extreme --epochs 50 --lr 1e-3
+
+# Train with custom early stopping patience
+python3 main.py train lewm --task counting --dataset extreme --epochs 200 --patience 30 --min-delta 0.0001
 ```
 
 #### Model-Specific Options
@@ -231,6 +236,8 @@ experiments:
     with_aug: true
     seeds: 3  # number of seeds or list like [42, 43, 44]
     sigreg_weight: 0.1
+    patience: 20  # Early stopping patience (optional, default: 15)
+    min_delta: 0.001  # Min improvement to count (optional, default: 0.001)
 
   - model: jepa
     dataset: extreme
@@ -238,6 +245,7 @@ experiments:
     epochs: 100
     model_type: transformer
     seeds: [42, 43, 44]
+    patience: 30  # Wait longer for counting task to converge
 ```
 
 #### Examples
