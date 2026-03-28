@@ -47,17 +47,12 @@ def get_device():
 
 def load_jepa_model(dataset, device, acoustic_only=False):
     """Load JEPA model."""
-    # Windows-compatible path handling
     script_dir = Path(__file__).parent
     weights_dir = script_dir / "weights" / f"jepa_{dataset}"
     config_path = weights_dir / "model_config.json"
     weights_path = weights_dir / "fish_clip_model.pth"
     
-    # Debug: print path for troubleshooting
-    print(f"  Looking for weights at: {weights_path.absolute()}")
-    
     if not weights_path.exists():
-        print(f"  ✗ Weights not found at: {weights_path}")
         return None, None
     
     with open(config_path, "r") as f:
@@ -85,23 +80,13 @@ def load_jepa_model(dataset, device, acoustic_only=False):
 
 def load_jepa_sigreg_model(dataset, device):
     """Load JEPA+SigReg model."""
-    # Windows-compatible path handling using os.path
     import os
     script_dir = os.path.dirname(os.path.abspath(__file__))
     weights_dir = os.path.join(script_dir, "weights", f"jepa_sigreg_{dataset}")
     config_path = os.path.join(weights_dir, "model_config.json")
     weights_path = os.path.join(weights_dir, "fish_clip_model.pth")
     
-    # Debug: print path for troubleshooting
-    print(f"  Looking for weights at: {weights_path}")
-    print(f"  File exists: {os.path.exists(weights_path)}")
-    
     if not os.path.exists(weights_path):
-        print(f"  ✗ Weights not found!")
-        # List what IS in the weights directory
-        if os.path.exists(os.path.dirname(weights_path)):
-            files = os.listdir(os.path.dirname(weights_path))
-            print(f"  Files in directory: {files}")
         return None, None
 
     with open(config_path, "r") as f:
@@ -272,11 +257,8 @@ def main():
 
         for dataset in datasets:
             print(f"\n  Dataset: {dataset}...")
-            print(f"  Calling load function: {load_fn.__name__ if hasattr(load_fn, '__name__') else 'lambda'}")
 
             model, model_type = load_fn(dataset, device)
-            
-            print(f"  Returned: model={model}, model_type={model_type}")
 
             if model is None:
                 print(f"    ⚠ Weights not found for {model_name} on {dataset}")

@@ -247,17 +247,14 @@ def main():
                 "task": args.task,
             }, f, indent=2)
         
-        print(f"✓ Weights saved to: {weights_path}")
-        print(f"✓ Config saved to: {config_path}")
+        print(f"✓ Weights saved successfully")
     except Exception as e:
         print(f"✗ Error saving weights: {e}")
-        import traceback
-        traceback.print_exc()
+        raise
 
     print("\n" + "="*70)
     print("✅ Training Complete!")
     print("="*70)
-    print(f"Weights saved to: {config.weights_dir}")
     print(f"\nNext steps:")
     print(f"  1. Start Python server:  python3 serve.py")
     print(f"  2. Run simulation:       cargo run --release")
