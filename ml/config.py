@@ -35,6 +35,10 @@ class TrainingConfig:
     # LeWM specific
     sigreg_weight: float = 0.1
 
+    # Early stopping
+    early_stop_patience: int = 15  # Stop if no improvement for N epochs
+    early_stop_min_delta: float = 0.001  # Minimum improvement to count as progress
+
     # Logging
     wandb_entity: str = "victoria-university-of-wellington"
     wandb_project: str = "depth-learning"

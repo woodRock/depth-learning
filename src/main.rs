@@ -9,6 +9,7 @@ use bevy::{
     },
 };
 use bevy_egui::{EguiContexts, EguiPlugin, egui};
+use egui::Vec2;
 use rand::prelude::*;
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use std::path::Path;
@@ -150,6 +151,79 @@ impl Default for InferenceResult {
             last_eval_status: "".to_string(),
             timer: Timer::from_seconds(0.5, TimerMode::Repeating),
         }
+    }
+}
+
+// Test evaluation metrics (multi-label F1 tracking)
+#[derive(Resource, Default)]
+struct TestEvaluation {
+    pub is_active: bool,
+    pub architecture: String,
+    pub dataset: String,
+    pub model_type: String,
+    // Per-class confusion metrics
+    class_tp: [u32; 4],  // Kingfish, Snapper, Cod, Empty
+    class_fp: [u32; 4],
+    class_fn: [u32; 4],
+    pub num_samples: u32,
+}
+
+impl TestEvaluation {
+    fn new() -> Self {
+        Self {
+            is_active: false,
+            architecture: String::new(),
+            dataset: String::new(),
+            model_type: String::new(),
+            class_tp: [0; 4],
+            class_fp: [0; 4],
+            class_fn: [0; 4],
+            num_samples: 0,
+        }
+    }
+    
+    fn compute_f1(&self, class_idx: usize) -> f32 {
+        let tp = self.class_tp[class_idx] as f32;
+        let fp = self.class_fp[class_idx] as f32;
+        let fn_ = self.class_fn[class_idx] as f32;
+        
+        let precision = tp / (tp + fp + 1e-8);
+        let recall = tp / (tp + fn_ + 1e-8);
+        
+        if precision + recall < 1e-8 {
+            0.0
+        } else {
+            2.0 * precision * recall / (precision + recall)
+        }
+    }
+    
+    fn compute_macro_f1(&self) -> f32 {
+        (self.compute_f1(0) + self.compute_f1(1) + self.compute_f1(2) + self.compute_f1(3)) / 4.0
+    }
+    
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "kingfish_f1": self.compute_f1(0),
+            "snapper_f1": self.compute_f1(1),
+            "cod_f1": self.compute_f1(2),
+            "empty_f1": self.compute_f1(3),
+            "avg_f1": self.compute_macro_f1()
+        })
+    }
+    
+    fn reset(&mut self, arch: &str, ds: &str, mt: &str) {
+        self.is_active = true;
+        self.architecture = arch.to_string();
+        self.dataset = ds.to_string();
+        self.model_type = mt.to_string();
+        self.class_tp = [0; 4];
+        self.class_fp = [0; 4];
+        self.class_fn = [0; 4];
+        self.num_samples = 0;
+    }
+    
+    fn stop(&mut self) {
+        self.is_active = false;
     }
 }
 
@@ -419,6 +493,7 @@ fn main() {
         .init_resource::<DynamicPopulation>()
         .init_resource::<EmptyFrameGenerator>()  // For generating empty frames
         .init_resource::<RecordingStats>()  // Track recording statistics
+        .init_resource::<TestEvaluation>()  // Track test evaluation metrics
         .insert_resource(DifficultyMode::new())  // Add difficulty mode resource
         .insert_resource(ModelSelection::new())  // Add model selection resource
         .add_systems(
@@ -700,6 +775,7 @@ fn ui_tiled_windows_system(
     ui_state: Res<UIState>,
     mut exporter: ResMut<DatasetExporter>,
     mut inference: ResMut<InferenceResult>,
+    mut test_eval: ResMut<TestEvaluation>,
     difficulty: Res<DifficultyMode>,
     channels: Res<InferenceChannels>,
     mut model_selection: ResMut<ModelSelection>,
@@ -1011,16 +1087,86 @@ fn ui_tiled_windows_system(
 
                                 ui.add_space(10.0);
 
-                                // Evaluate button with selected model
+                                // Test Evaluation Section (Simulation-based)
+                                ui.group(|ui| {
+                                    ui.label(egui::RichText::new("🧪 Test Evaluation (Simulation)").strong());
+                                    ui.add_space(5.0);
+                                    ui.label("Generates NEW samples in simulation for true test evaluation");
+                                    ui.add_space(5.0);
+                                    
+                                    if test_eval.is_active {
+                                        // Show status and stop button
+                                        ui.label(format!("Evaluating: {} ({})", test_eval.architecture, test_eval.dataset));
+                                        ui.label(format!("Samples: {}", test_eval.num_samples));
+                                        ui.label(format!("Macro F1: {:.1}%", test_eval.compute_macro_f1() * 100.0));
+                                        
+                                        ui.add_space(5.0);
+                                        if ui.add(egui::Button::new("⏹ Stop & Save Results").min_size(Vec2::new(200.0, 30.0))).clicked() {
+                                            // Capture data before stopping
+                                            let metrics = test_eval.to_json();
+                                            let arch = test_eval.architecture.clone();
+                                            let ds = test_eval.dataset.clone();
+                                            let mt = test_eval.model_type.clone();
+                                            let num_samples = test_eval.num_samples;
+                                            let macro_f1 = test_eval.compute_macro_f1();
+                                            
+                                            test_eval.stop();
+                                            
+                                            // Send results to Python server
+                                            std::thread::spawn(move || {
+                                                let client = reqwest::blocking::Client::new();
+                                                let payload = serde_json::json!({
+                                                    "architecture": arch,
+                                                    "dataset": ds,
+                                                    "model_type": mt,
+                                                    "test_metrics": metrics,
+                                                    "num_samples": num_samples
+                                                });
+                                                
+                                                match client.post("http://127.0.0.1:8000/save_test_results")
+                                                    .json(&payload)
+                                                    .send() {
+                                                    Ok(resp) => {
+                                                        if resp.status().is_success() {
+                                                            println!("✅ Test results saved successfully!");
+                                                        } else {
+                                                            eprintln!("❌ Failed to save test results: {}", resp.status());
+                                                        }
+                                                    }
+                                                    Err(e) => eprintln!("❌ Error saving test results: {}", e),
+                                                }
+                                            });
+                                            
+                                            inference.last_eval_status = format!("Test evaluation complete! Macro F1: {:.1}%", macro_f1 * 100.0);
+                                        }
+                                    } else {
+                                        // Show start button
+                                        let arch = &model_selection.selected_architecture;
+                                        let ds = &model_selection.selected_dataset;
+                                        let mt = &model_selection.selected_model_type;
+                                        
+                                        if ui.add(egui::Button::new(format!("▶ Start Test Evaluation ({} {})", arch, ds)).min_size(Vec2::new(200.0, 30.0))).clicked() {
+                                            test_eval.reset(arch, ds, mt);
+                                            inference.last_eval_status = format!("Started test evaluation for {} ({})", arch, ds);
+                                        }
+                                        
+                                        ui.add_space(5.0);
+                                        ui.label(egui::RichText::new("Note: Click 'Start' then generate samples in simulation. Click 'Stop' when done.").small().italics());
+                                    }
+                                });
+
+                                ui.add_space(10.0);
+
+                                // Evaluate button with selected model (for validation split evaluation)
                                 let test_ds = if model_selection.selected_test_dataset == "Same as Train" {
                                     model_selection.selected_dataset.clone()
                                 } else {
                                     model_selection.selected_test_dataset.clone()
                                 };
-                                
-                                let is_shortcut = model_selection.selected_test_dataset != "Same as Train" 
+
+                                let is_shortcut = model_selection.selected_test_dataset != "Same as Train"
                                     && model_selection.selected_test_dataset != model_selection.selected_dataset;
-                                
+
                                 let eval_label = if is_shortcut {
                                     format!(
                                         "\u{1f4ca} Shortcut Test: {} ({}) trained on {}, tested on {}",
@@ -1138,6 +1284,7 @@ fn ui_tiled_windows_system(
 fn model_inference_system(
     time: Res<Time>,
     mut inference: ResMut<InferenceResult>,
+    mut test_eval: ResMut<TestEvaluation>,
     ui_state: Res<UIState>,
     mut images: ResMut<Assets<Image>>,
     channels: Res<InferenceChannels>,
@@ -1148,6 +1295,47 @@ fn model_inference_system(
         inference.predictions = resp.predictions.clone();
         inference.is_multilabel = resp.is_multilabel;  // Track prediction mode
         inference.task = resp.task.clone();  // Track task type
+
+        // Track test evaluation metrics if active
+        if test_eval.is_active {
+            // Get ground truth as multi-hot vector
+            let mut gt_multihot = [0u8; 4];  // Kingfish, Snapper, Cod, Empty
+            for (name, _) in &inference.ground_truth_dist {
+                match name.as_str() {
+                    "Kingfish" => gt_multihot[0] = 1,
+                    "Snapper" => gt_multihot[1] = 1,
+                    "Cod" => gt_multihot[2] = 1,
+                    "Empty" => gt_multihot[3] = 1,
+                    _ => {}
+                }
+            }
+            
+            // Get predictions as multi-hot (threshold 0.5)
+            let mut pred_multihot = [0u8; 4];
+            for (name, score) in &resp.predictions {
+                if *score > 0.5 {
+                    match name.as_str() {
+                        "Kingfish" => pred_multihot[0] = 1,
+                        "Snapper" => pred_multihot[1] = 1,
+                        "Cod" => pred_multihot[2] = 1,
+                        "Empty" => pred_multihot[3] = 1,
+                        _ => {}
+                    }
+                }
+            }
+            
+            // Update confusion matrix
+            for i in 0..4 {
+                if pred_multihot[i] == 1 && gt_multihot[i] == 1 {
+                    test_eval.class_tp[i] += 1;
+                } else if pred_multihot[i] == 1 && gt_multihot[i] == 0 {
+                    test_eval.class_fp[i] += 1;
+                } else if pred_multihot[i] == 0 && gt_multihot[i] == 1 {
+                    test_eval.class_fn[i] += 1;
+                }
+            }
+            test_eval.num_samples += 1;
+        }
 
         // For multi-label: check if any species has probability > 0.5
         // For single-label: check if top prediction matches ground truth
@@ -1226,12 +1414,12 @@ fn model_inference_system(
         gt_dist.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     }
     inference.ground_truth_dist = gt_dist.clone();  // Clone to use later
-    
+
     // Store all species in beam for multi-label dataset export
     inference.species_in_beam = gt_dist.iter()
         .map(|(name, _)| name.clone())
         .collect();
-    
+
     // Store species counts for counting task
     inference.species_counts = gt_dist.iter()
         .map(|(name, proportion)| {
@@ -2078,3 +2266,4 @@ fn update_school_headings_system(
         }
     }
 }
+
