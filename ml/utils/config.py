@@ -50,19 +50,19 @@ class TrainingConfig:
     def from_args(cls, args: argparse.Namespace) -> "TrainingConfig":
         """Create config from argparse namespace."""
         return cls(
-            model_type=args.model,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            learning_rate=args.lr,
-            weight_decay=args.weight_decay,
-            dataset=args.dataset,
-            n_chunks=args.n_chunks,
-            with_aug=args.with_aug,
-            light_aug=args.light_aug,
-            rotation_degrees=args.rotation_degrees,
+            model_type=getattr(args, 'model', "transformer"),
+            epochs=getattr(args, 'epochs', 80),
+            batch_size=getattr(args, 'batch_size', 32),
+            learning_rate=getattr(args, 'lr', 3e-4),
+            weight_decay=getattr(args, 'weight_decay', 0.05),
+            dataset=getattr(args, 'dataset', "easy"),
+            n_chunks=getattr(args, 'n_chunks', 10),
+            with_aug=getattr(args, 'with_aug', False),
+            light_aug=getattr(args, 'light_aug', False),
+            rotation_degrees=getattr(args, 'rotation_degrees', 30),
             label_smoothing=getattr(args, 'label_smoothing', 0.1),
             use_focal_loss=getattr(args, 'use_focal_loss', True),
-            sigreg_weight=args.sigreg_weight,
+            sigreg_weight=getattr(args, 'sigreg_weight', 0.1),
         )
 
 
@@ -147,7 +147,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--weights-dir", 
         type=str, 
-        default="weights",
+        default=None,
         help="Directory to save model weights"
     )
     parser.add_argument(
@@ -161,4 +161,16 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=10,
         help="Number of chunks for acoustic processing (default: 10)"
+    )
+    parser.add_argument(
+        "--sigreg-weight",
+        type=float,
+        default=0.1,
+        help="Weight for SigReg regularization (default: 0.1)"
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for reproducibility (default: 42)"
     )

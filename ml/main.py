@@ -56,6 +56,12 @@ def cmd_evaluate(args):
     logger.info(f"Evaluating {args.arch} on {args.dataset}")
     asyncio.run(run_eval())
 
+def cmd_experiment(args):
+    """Route to experiment logic."""
+    from cli.experiment_runner import run_experiments_from_yaml
+    logger.info(f"Running experiments from: {args.config}")
+    run_experiments_from_yaml(args.config)
+
 def main():
     parser = argparse.ArgumentParser(
         description="Depth Learning Universal CLI",
@@ -80,6 +86,10 @@ def main():
     eval_parser.add_argument("--mode", default="Multi-modal", help="Mode (Multi-modal or Acoustic-only)")
     eval_parser.add_argument("--test-dataset", default="same", help="Dataset to test on")
 
+    # Experiment subcommand
+    experiment_parser = subparsers.add_parser("experiment", help="Run experiments from YAML")
+    experiment_parser.add_argument("--config", required=True, help="Path to YAML config file")
+
     # If no arguments, print help
     if len(sys.argv) == 1:
         parser.print_help()
@@ -96,6 +106,8 @@ def main():
             cmd_serve(args)
         elif args.action == "evaluate":
             cmd_evaluate(args)
+        elif args.action == "experiment":
+            cmd_experiment(args)
         else:
             parser.print_help()
 
