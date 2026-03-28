@@ -46,10 +46,10 @@ pip install -r requirements.txt
 
 # Generate dataset first (see below)
 # Then train
-python3 train.py lewm --task presence --dataset easy --epochs 80
+python3 main.py train lewm --task presence --dataset easy --epochs 80
 
 # Start inference server
-python3 serve.py
+python3 main.py serve
 ```
 
 ---
@@ -152,10 +152,10 @@ Train on Easy → Test on Extreme
 
 ```bash
 # Train JEPA
-python3 train.py jepa --task presence --dataset extreme --epochs 80 --with-aug
+python3 main.py train jepa --task presence --dataset extreme --epochs 80 --with-aug
 
 # Train LeWM
-python3 train.py lewm --task presence --dataset extreme --epochs 80 --with-aug
+python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
 ```
 
 **Expected Performance:**
@@ -167,7 +167,7 @@ python3 train.py lewm --task presence --dataset extreme --epochs 80 --with-aug
 **Task:** How many fish of each species are present?
 
 ```bash
-python3 train.py lewm --task counting --dataset extreme --epochs 80 --with-aug
+python3 main.py train lewm --task counting --dataset extreme --epochs 80 --with-aug
 ```
 
 **Expected Performance:**
@@ -184,42 +184,42 @@ python3 train.py lewm --task counting --dataset extreme --epochs 80 --with-aug
 cd ml
 
 # Train on Easy dataset
-python3 train.py lewm --task presence --dataset easy --epochs 80
+python3 main.py train lewm --task presence --dataset easy --epochs 80
 
 # Train with augmentation (recommended)
-python3 train.py lewm --task presence --dataset easy --epochs 80 --with-aug
+python3 main.py train lewm --task presence --dataset easy --epochs 80 --with-aug
 
 # Train on EXTREME (best for generalization)
-python3 train.py lewm --task presence --dataset extreme --epochs 80 --with-aug
+python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
 ```
 
 ### Curriculum Learning
 
 ```bash
 # Progressive difficulty training
-python3 train.py lewm --task presence --dataset easy --epochs 40
-python3 train.py lewm --task presence --dataset medium --epochs 40
-python3 train.py lewm --task presence --dataset hard --epochs 40
-python3 train.py lewm --task presence --dataset extreme --epochs 40
+python3 main.py train lewm --task presence --dataset easy --epochs 40
+python3 main.py train lewm --task presence --dataset medium --epochs 40
+python3 main.py train lewm --task presence --dataset hard --epochs 40
+python3 main.py train lewm --task presence --dataset extreme --epochs 40
 ```
 
 ### Available Models
 
 ```bash
 # JEPA (Joint Embedding Predictive Architecture)
-python3 train.py jepa --task presence --dataset extreme --epochs 80
+python3 main.py train jepa --task presence --dataset extreme --epochs 80
 
 # LeWM (LeWorldModel - recommended)
-python3 train.py lewm --task presence --dataset extreme --epochs 80
+python3 main.py train lewm --task presence --dataset extreme --epochs 80
 
 # MAE (Masked Autoencoder - self-supervised pretraining)
-python3 train.py mae --dataset extreme --epochs 100
+python3 main.py train mae --dataset extreme --epochs 100
 
 # Fusion (multimodal visual+acoustic)
-python3 train.py fusion --dataset extreme --epochs 50
+python3 main.py train fusion --dataset extreme --epochs 50
 
 # Decoder (image reconstruction from acoustic)
-python3 train.py decoder --dataset extreme --epochs 50
+python3 main.py train decoder --dataset extreme --epochs 50
 ```
 
 ---
@@ -230,7 +230,7 @@ python3 train.py decoder --dataset extreme --epochs 50
 
 ```bash
 cd ml
-python3 serve.py
+python3 main.py serve
 ```
 
 ### Test in Simulation
@@ -323,7 +323,7 @@ Our **EXTREME mode** breaks depth stratification:
 cargo run --bin generate_dataset -- -o dataset/extreme -n 2000 -d extreme
 
 # 2. Train on EXTREME
-python3 train.py lewm --task presence --dataset extreme --epochs 80 --with-aug
+python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
 
 # 3. Test in simulation (press M to EXTREME)
 cargo run --release
@@ -338,16 +338,16 @@ cargo run --release
 ## 🛠️ Troubleshooting
 
 ### Model gets 100% on training but <50% on Extreme test
-**Problem:** Model learned depth shortcut  
+**Problem:** Model learned depth shortcut
 **Solution:** Train on EXTREME dataset with `--with-aug`
 
 ### F1 score > 100%
-**Problem:** Bug in metric calculation (should be fixed)  
+**Problem:** Bug in metric calculation (should be fixed)
 **Solution:** Pull latest changes
 
 ### Simulation doesn't connect to server
-**Problem:** Server not running or wrong port  
-**Solution:** Run `python3 ml/serve.py` first
+**Problem:** Server not running or wrong port
+**Solution:** Run `python3 main.py serve` first
 
 ---
 

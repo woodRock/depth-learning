@@ -45,6 +45,9 @@ class TrainingConfig:
     wandb_entity: str = "victoria-university-of-wellington"
     wandb_project: str = "depth-learning"
 
+    # Reproducibility
+    seed: int = 42
+
     # Paths
     weights_dir: str = "weights"
     
@@ -67,6 +70,7 @@ class TrainingConfig:
             label_smoothing=getattr(args, 'label_smoothing', 0.1),
             use_focal_loss=getattr(args, 'use_focal_loss', True),
             sigreg_weight=getattr(args, 'sigreg_weight', 0.1),
+            seed=getattr(args, 'seed', 42),
         )
 
 

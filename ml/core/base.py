@@ -233,7 +233,8 @@ class BaseTrainer(ABC):
 
         # Create dataset and split (EXACTLY as training)
         # Use mode="train" to ensure balancing logic is applied if it was for training
-        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="train", multi_label=True, task=task)
+        seed = getattr(self.config, 'seed', 42)
+        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="train", multi_label=True, task=task, seed=seed)
         
         if len(full_dataset) == 0:
             print(f"  Warning: No samples found in {dataset_path}. Skipping acoustic-only evaluation.")
