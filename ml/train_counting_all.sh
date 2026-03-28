@@ -77,8 +77,13 @@ for model in jepa jepa_acoustic lewm jepa_sigreg; do
 done
 print_success "Created all weight directories"
 
-# Track training results
-declare -A TRAINING_RESULTS
+# Track training results (use simple arrays for macOS bash 3.x compatibility)
+TRAINING_RESULTS=()
+
+# Uppercase function for bash 3.x compatibility
+to_upper() {
+    echo "$1" | tr '[:lower:]' '[:upper:]'
+}
 
 # Training function
 train_model() {
@@ -86,7 +91,7 @@ train_model() {
     local dataset=$2
     local weights_dir="${WEIGHTS_DIR}/${model_type}_${dataset}"
     
-    print_section "Training ${model_type^^} on ${dataset^^} Dataset (Counting Task)"
+    print_section "Training $(to_upper ${model_type}) on $(to_upper ${dataset}) Dataset (Counting Task)"
     echo "Weights will be saved to: ${weights_dir}"
     
     case $model_type in
@@ -115,10 +120,10 @@ train_model() {
     
     if [ $? -eq 0 ]; then
         print_success "${model_type^^} ${dataset^^} training complete!"
-        TRAINING_RESULTS["${model_type}_${dataset}"]="✓ Success"
+        TRAINING_RESULTS+=("${model_type}_${dataset}:✓ Success")
     else
         print_error "${model_type^^} ${dataset^^} training failed!"
-        TRAINING_RESULTS["${model_type}_${dataset}"]="✗ Failed"
+        TRAINING_RESULTS+=("${model_type}_${dataset}:✗ Failed")
     fi
 }
 
@@ -156,8 +161,10 @@ echo ""
 printf "%-25s | %-15s\n" "Model" "Status"
 printf "%-25s-+-%-15s\n" "-------------------------" "---------------"
 
-for key in "${!TRAINING_RESULTS[@]}"; do
-    printf "%-25s | %-15s\n" "${key}" "${TRAINING_RESULTS[$key]}"
+for result in "${TRAINING_RESULTS[@]}"; do
+    model="${result%%:*}"
+    status="${result##*:}"
+    printf "%-25s | %-15s\n" "${model}" "${status}"
 done
 
 echo ""
