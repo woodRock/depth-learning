@@ -10,6 +10,7 @@ class TrainingConfig:
     """Base configuration for all training pipelines."""
 
     # Model settings
+    architecture: str = "jepa"
     model_type: str = "transformer"
     embed_dim: int = 256
 
@@ -50,6 +51,7 @@ class TrainingConfig:
     def from_args(cls, args: argparse.Namespace) -> "TrainingConfig":
         """Create config from argparse namespace."""
         return cls(
+            architecture=getattr(args, 'command', "jepa"),
             model_type=getattr(args, 'model', "transformer"),
             epochs=getattr(args, 'epochs', 80),
             batch_size=getattr(args, 'batch_size', 32),

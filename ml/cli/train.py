@@ -40,6 +40,8 @@ def setup_wandb(config: Any, job_type: str, architecture: str, task: str) -> Non
         entity=getattr(config, 'wandb_entity', 'victoria-university-of-wellington'),
         project=getattr(config, 'wandb_project', 'depth-learning'),
         job_type=job_type,
+        reinit=True,
+        resume="allow",
         config={
             **vars(config),
             "architecture": architecture,

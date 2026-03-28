@@ -28,29 +28,30 @@ def get_trainer(config: Any, device: torch.device) -> "BaseTrainer":
     
     # Determine model type from config
     model_type = getattr(config, 'model_type', None)
+    architecture = getattr(config, 'architecture', 'jepa')
     
     if isinstance(config, DecoderConfig):
-        model_type = "decoder"
+        architecture = "decoder"
     elif isinstance(config, FusionConfig):
-        model_type = "fusion"
+        architecture = "fusion"
     elif isinstance(config, TranslatorConfig):
-        model_type = "translator"
+        architecture = "translator"
     elif isinstance(config, MAEConfig):
-        model_type = "mae"
+        architecture = "mae"
         
-    logger.info(f"Creating trainer for model type: {model_type}")
+    logger.info(f"Creating trainer for architecture: {architecture} (model_type: {model_type})")
     
-    if model_type == "lewm":
+    if architecture == "lewm":
         return LeWMTrainer(config, device)
-    elif model_type == "lewm_plus":
+    elif architecture == "lewm_plus":
         return LeWMPlusTrainer(config, device)
-    elif model_type == "decoder":
+    elif architecture == "decoder":
         return DecoderTrainer(config, device)
-    elif model_type == "fusion":
+    elif architecture == "fusion":
         return FusionTrainer(config, device)
-    elif model_type == "translator":
+    elif architecture == "translator":
         return TranslatorTrainer(config, device)
-    elif model_type == "mae":
+    elif architecture == "mae":
         return MAETrainer(config, device)
     else:
         # Default to JEPA trainer (transformer, conv, lstm, ast)
