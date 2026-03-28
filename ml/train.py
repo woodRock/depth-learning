@@ -116,6 +116,65 @@ def train_jepa(args: argparse.Namespace) -> None:
     wandb.finish()
 
 
+def train_jepa_sigreg(args: argparse.Namespace) -> None:
+    """Train Multi-modal JEPA with SigReg regularization."""
+    config = TrainingConfig.from_args(args)
+    # Set dataset-specific weights directory
+    if args.weights_dir is None:
+        config.weights_dir = f"weights/jepa_sigreg_{config.dataset}"
+    else:
+        config.weights_dir = args.weights_dir
+    config.early_stop_patience = args.patience
+    device = _get_device()
+
+    print(f"--- Starting JEPA+SigReg Training ({config.model_type.upper()}) on {device} ---")
+    print(f"--- Task: {args.task.upper()} ---")
+    print(f"--- Dataset: {config.dataset} | Augmentation: {'enabled' if config.with_aug else 'disabled'} ---")
+    print(f"--- SigReg Weight: {config.sigreg_weight} ---")
+
+    setup_wandb(config, job_type=f"jepa-sigreg-{config.model_type}-{args.task}")
+
+    # Create data loaders
+    aug_config = AugmentationConfig(
+        enabled=config.with_aug,
+        light=config.light_aug,
+        rotation_degrees=config.rotation_degrees,
+    )
+    transform = create_visual_transform(aug_config)
+    dataset_path = _get_dataset_path(config.dataset)
+
+    from data import FishDataset
+    from torch.utils.data import Subset
+
+    multi_label = (args.task == "presence")
+    unbalanced_dataset = FishDataset(dataset_path, transform=transform, mode="val", multi_label=multi_label, task=args.task)
+
+    from data import create_stratified_split
+    train_indices, val_indices = create_stratified_split(unbalanced_dataset)
+
+    train_ds = Subset(unbalanced_dataset, train_indices)
+    val_ds = Subset(unbalanced_dataset, val_indices)
+
+    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.batch_size, shuffle=True, drop_last=True)
+    val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
+
+    # Import and create trainer
+    from trainers_jepa_sigreg import JEPASigRegTrainer
+    trainer = JEPASigRegTrainer(config, device)
+    trainer.model = trainer.build_model(task=args.task)
+    trainer.optimizer = torch.optim.AdamW(
+        filter(lambda p: p.requires_grad, trainer.model.parameters()),
+        lr=config.learning_rate,
+        weight_decay=config.weight_decay,
+    )
+    trainer.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        trainer.optimizer, T_max=config.epochs
+    )
+
+    trainer.train(train_loader, val_loader)
+    wandb.finish()
+
+
 def train_lewm(args: argparse.Namespace) -> None:
     """Train LeWorldModel with multi-label presence/absence or counting."""
     # Set model type for args before creating config
@@ -325,6 +384,25 @@ def main() -> None:
     # --with-aug is in add_common_args, just set default to True
     add_common_args(jepa_parser)
     jepa_parser.set_defaults(func=train_jepa, with_aug=True)  # Enable aug by default for JEPA
+
+    # JEPA + SigReg parser
+    jepa_sigreg_parser = subparsers.add_parser("jepa_sigreg", help="Train Multi-modal JEPA with SigReg")
+    jepa_sigreg_parser.add_argument(
+        "--model",
+        type=str,
+        default="transformer",
+        choices=["conv", "transformer", "lstm", "ast"],
+        help="Acoustic encoder type (default: transformer)"
+    )
+    jepa_sigreg_parser.add_argument("--epochs", type=int, default=100)
+    jepa_sigreg_parser.add_argument("--lr", type=float, default=3e-4)
+    jepa_sigreg_parser.add_argument("--batch-size", type=int, default=32)
+    jepa_sigreg_parser.add_argument("--weight-decay", type=float, default=0.05)
+    jepa_sigreg_parser.add_argument("--task", type=str, default="presence", choices=["presence", "single_label"])
+    jepa_sigreg_parser.add_argument("--sigreg-weight", type=float, default=0.1)
+    jepa_sigreg_parser.add_argument("--patience", type=int, default=15)
+    add_common_args(jepa_sigreg_parser)
+    jepa_sigreg_parser.set_defaults(func=train_jepa_sigreg, with_aug=True)
 
     # LeWM parser (multi-label presence/absence detection or counting)
     lewm_parser = subparsers.add_parser("lewm", help="Train LeWorldModel with multi-label tasks")
