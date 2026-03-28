@@ -71,6 +71,8 @@ class TrainingConfig:
             use_focal_loss=getattr(args, 'use_focal_loss', True),
             sigreg_weight=getattr(args, 'sigreg_weight', 0.1),
             seed=getattr(args, 'seed', 42),
+            early_stop_patience=getattr(args, 'patience', 15),
+            early_stop_min_delta=getattr(args, 'min_delta', 0.001),
         )
 
 
@@ -141,20 +143,20 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         help="Dataset difficulty level (default: easy)"
     )
     parser.add_argument(
-        "--with-aug", 
-        action="store_true", 
+        "--with-aug",
+        action="store_true",
         default=False,
         help="Enable data augmentation (default: disabled)"
     )
     parser.add_argument(
-        "--light-aug", 
-        action="store_true", 
+        "--light-aug",
+        action="store_true",
         default=False,
         help="Use light augmentation (only horizontal flip)"
     )
     parser.add_argument(
-        "--weights-dir", 
-        type=str, 
+        "--weights-dir",
+        type=str,
         default=None,
         help="Directory to save model weights"
     )
@@ -181,4 +183,16 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=42,
         help="Random seed for reproducibility (default: 42)"
+    )
+    parser.add_argument(
+        "--patience",
+        type=int,
+        default=15,
+        help="Early stopping patience (epochs without improvement, default: 15)"
+    )
+    parser.add_argument(
+        "--min-delta",
+        type=float,
+        default=0.001,
+        help="Early stopping min delta (min improvement to count, default: 0.001)"
     )
