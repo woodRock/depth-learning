@@ -217,10 +217,42 @@ def main():
     
     print(f"\n📈 Starting Training...")
     trainer.train(train_loader, val_loader)
-    
+
     # Finish wandb
     wandb.finish()
-    
+
+    # Explicitly save model weights
+    print(f"\n💾 Saving model weights...")
+    try:
+        os.makedirs(config.weights_dir, exist_ok=True)
+        weights_path = os.path.join(config.weights_dir, "fish_clip_model.pth")
+        torch.save(trainer.model.state_dict(), weights_path)
+        
+        # Also save config
+        config_path = os.path.join(config.weights_dir, "model_config.json")
+        with open(config_path, "w") as f:
+            json.dump({
+                "model_type": args.model,
+                "config": {
+                    "embed_dim": args.embed_dim,
+                    "epochs": args.epochs,
+                    "batch_size": args.batch_size,
+                    "learning_rate": args.lr,
+                    "weight_decay": args.weight_decay,
+                    "dataset": args.dataset,
+                    "sigreg_weight": args.sigreg_weight,
+                    "task": args.task,
+                },
+                "task": args.task,
+            }, f, indent=2)
+        
+        print(f"✓ Weights saved to: {weights_path}")
+        print(f"✓ Config saved to: {config_path}")
+    except Exception as e:
+        print(f"✗ Error saving weights: {e}")
+        import traceback
+        traceback.print_exc()
+
     print("\n" + "="*70)
     print("✅ Training Complete!")
     print("="*70)
