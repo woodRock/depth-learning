@@ -362,6 +362,16 @@ class BaseTrainer(ABC):
             json.dump(results, f, indent=2)
         print(f"Acoustic-only results saved to {results_path}")
 
+        # Log acoustic-only metrics to wandb
+        wandb.log({
+            "acoustic_only/train_mae": acoustic_train_metrics.get("mae", 0) if is_counting else acoustic_train_metrics.get("avg_f1", 0),
+            "acoustic_only/val_mae": acoustic_val_metrics.get("mae", 0) if is_counting else acoustic_val_metrics.get("avg_f1", 0),
+            "acoustic_only/train_rmse": acoustic_train_metrics.get("rmse", 0) if is_counting else 0,
+            "acoustic_only/val_rmse": acoustic_val_metrics.get("rmse", 0) if is_counting else 0,
+            "acoustic_only/train_f1": 0 if is_counting else acoustic_train_metrics.get("avg_f1", 0),
+            "acoustic_only/val_f1": 0 if is_counting else acoustic_val_metrics.get("avg_f1", 0),
+        })
+
     def _log_metrics(
         self,
         epoch: int,
