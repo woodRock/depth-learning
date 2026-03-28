@@ -98,5 +98,49 @@
       "avg_f1": 0.75
     },
     "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "transformer",
+    "dataset": "extreme",
+    "timestamp": "2026-03-28T19:58:10.543732",
+    "mode": "multi-modal",
+    "train": {
+      "kingfish_f1": 0.980552077293396,
+      "snapper_f1": 0.9995812177658081,
+      "cod_f1": 0.955974817276001,
+      "empty_f1": 0.997474730014801,
+      "avg_f1": 0.983045966872177
+    },
+    "val": {
+      "kingfish_f1": 0.9875622391700745,
+      "snapper_f1": 1.0,
+      "cod_f1": 0.9727046489715576,
+      "empty_f1": 1.0,
+      "avg_f1": 0.9894285612580889
+    },
+    "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "transformer",
+    "dataset": "extreme",
+    "timestamp": "2026-03-28T19:58:27.134720",
+    "mode": "acoustic_only",
+    "train": {
+      "kingfish_f1": 0.3642987310886383,
+      "snapper_f1": 0.38031020760536194,
+      "cod_f1": 0.04628501832485199,
+      "empty_f1": 0.46721312403678894,
+      "avg_f1": 0.31452676653862
+    },
+    "val": {
+      "kingfish_f1": 0.991172730922699,
+      "snapper_f1": 1.0,
+      "cod_f1": 0.9753694534301758,
+      "empty_f1": 0.0,
+      "avg_f1": 0.7416355609893799
+    },
+    "test": null
   }
 ]

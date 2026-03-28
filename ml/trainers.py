@@ -157,14 +157,14 @@ class BaseTrainer(ABC):
         import torch
         import torch.nn.functional as F
         
-        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        device = self.device  # Use the same device as training
         
         # Create evaluation transform (no augmentation)
         eval_transform = create_visual_transform(AugmentationConfig(enabled=False))
         dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", self.config.dataset))
         
         # Create dataset and split (same as training)
-        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="train", multi_label=True, task="presence")
+        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="val", multi_label=True, task="presence")
         train_indices, val_indices = create_stratified_split(full_dataset)
         
         # Evaluate on train split (acoustic-only)
@@ -172,7 +172,7 @@ class BaseTrainer(ABC):
         train_loader = torch.utils.data.DataLoader(train_ds, batch_size=self.config.batch_size, shuffle=False)
         
         # Evaluate on val split (acoustic-only)
-        val_ds = Subset(FishDataset(dataset_path, transform=eval_transform, mode="val", multi_label=True, task="presence"), val_indices)
+        val_ds = Subset(full_dataset, val_indices)
         val_loader = torch.utils.data.DataLoader(val_ds, batch_size=self.config.batch_size, shuffle=False)
         
         # Evaluate acoustic-only
