@@ -1,0 +1,17 @@
+name: presence_all
+experiments:
+- model: jepa
+  dataset: all
+  task: presence
+  epochs: 100
+  seeds: 3
+- model: lewm
+  dataset: all
+  task: presence
+  epochs: 100
+  seeds: 3
+- model: lewm_plus
+  dataset: all
+  task: presence
+  epochs: 100
+  seeds: 3

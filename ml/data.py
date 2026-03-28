@@ -158,31 +158,35 @@ class FishDataset(Dataset):
         with open(meta_path, "r") as f:
             meta = json.load(f)
             
-            # Counting task: read species counts
+            # Counting task: estimate actual fish counts from cumulative detections
             if self.task == "counting":
+                # species_counts are cumulative detections across 32 pings
+                # Estimate actual fish count by dividing by ping count and rounding
+                PING_COUNT = 32  # Number of pings per frame
+                
                 if "species_counts" in meta:
-                    # New format with counts
                     counts = meta["species_counts"]
                     count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
-                    for species_name, count in counts.items():
+                    for species_name, cumulative_count in counts.items():
                         label_idx = self.SPECIES_MAP.get(species_name, 3)
-                        count_tensor[label_idx] = float(count)
+                        # Estimate: cumulative / pings, rounded to nearest integer
+                        estimated_count = round(cumulative_count / PING_COUNT)
+                        count_tensor[label_idx] = float(estimated_count)
+                    label_tensor = count_tensor
+                elif "species_present" in meta:
+                    # Fallback: use presence (1 if present)
+                    species_present = meta["species_present"]
+                    count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                    for species_name in species_present:
+                        label_idx = self.SPECIES_MAP.get(species_name, 3)
+                        count_tensor[label_idx] = 1.0
                     label_tensor = count_tensor
                 else:
-                    # Fallback: use presence as proxy for count
-                    if "species_present" in meta:
-                        species_present = meta["species_present"]
-                        count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
-                        for species_name in species_present:
-                            label_idx = self.SPECIES_MAP.get(species_name, 3)
-                            count_tensor[label_idx] = 1.0
-                        label_tensor = count_tensor
-                    else:
-                        # Legacy: single species = 1
-                        label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
-                        count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
-                        count_tensor[label] = 1.0
-                        label_tensor = count_tensor
+                    # Last resort: dominant species = 1
+                    label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
+                    count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
+                    count_tensor[label] = 1.0
+                    label_tensor = count_tensor
             
             # Presence/absence task OR multi_label=True: read species present
             elif self.task == "presence" or self.multi_label:

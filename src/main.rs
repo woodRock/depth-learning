@@ -1421,13 +1421,9 @@ fn model_inference_system(
         .map(|(name, _)| name.clone())
         .collect();
 
-    // Store species counts for counting task
-    inference.species_counts = gt_dist.iter()
-        .map(|(name, proportion)| {
-            let count = (proportion * total_fish_in_beam as f32).round() as u32;
-            (name.clone(), count)
-        })
-        .collect();
+    // Store ACTUAL fish counts for counting task (not proportions!)
+    // Use the original species_counts HashMap which has actual counts
+    inference.species_counts = species_counts.clone();
 
     let Some(img) = images.get(&ui_state.echogram_texture) else {
         return;
