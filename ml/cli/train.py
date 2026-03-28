@@ -34,7 +34,7 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-def setup_wandb(config: Any, job_type: str) -> None:
+def setup_wandb(config: Any, job_type: str, architecture: str, task: str) -> None:
     """Initialize wandb with configuration."""
     wandb.init(
         entity=getattr(config, 'wandb_entity', 'victoria-university-of-wellington'),
@@ -42,6 +42,8 @@ def setup_wandb(config: Any, job_type: str) -> None:
         job_type=job_type,
         config={
             **vars(config),
+            "architecture": architecture,
+            "task": task,
             "cuda": torch.cuda.is_available(),
             "mps": torch.backends.mps.is_available() if hasattr(torch.backends, 'mps') else False,
         },
@@ -78,7 +80,8 @@ def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
         config.weights_dir = f"weights/{model_name}_{getattr(config, 'dataset', 'default')}"
 
     print(f"--- Starting {args.command.upper()} Training on {device} ---")
-    setup_wandb(config, job_type=job_type)
+    task = getattr(args, 'task', 'presence')
+    setup_wandb(config, job_type=job_type, architecture=args.command, task=task)
 
     # Create data loaders
     aug_config = AugmentationConfig(
@@ -108,7 +111,6 @@ def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
 
     # Get trainer and setup optimizer
     trainer = get_trainer(config, device)
-    task = getattr(args, 'task', 'presence')
     trainer.model = trainer.build_model() # Some trainers use task inside build_model, others don't
     if hasattr(trainer.model, 'task'):
         trainer.model.task = task
