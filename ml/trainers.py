@@ -348,16 +348,21 @@ class JEPATrainer(BaseTrainer):
         total_loss = 0
         total_loss_jepa = 0
         total_loss_cls = 0
-        
+
         # Classification metrics
         correct = 0
         total = 0
-        
+
         # Presence task metrics
         total_precision = 0
         total_recall = 0
         total_f1 = 0
-        
+
+        # Counting task metrics
+        total_mae = 0
+        total_rmse = 0
+        total_samples = 0
+
         # Per-class F1 (for presence task)
         class_tp = torch.zeros(4)
         class_fp = torch.zeros(4)
@@ -381,54 +386,73 @@ class JEPATrainer(BaseTrainer):
             total_loss_jepa += loss_jepa.item()
             total_loss_cls += loss_cls.item()
 
-            # Task-specific metrics
-            if hasattr(self.model, 'task') and self.model.task == "presence":
-                # Multi-label: precision, recall, F1
-                probs = torch.sigmoid(species_logits)
-                preds = (probs > 0.5).float()
+        # Task-specific metrics
+        task = getattr(self.model, 'task', 'presence')
+        
+        if task == "presence":
+            # Multi-label: precision, recall, F1
+            probs = torch.sigmoid(species_logits)
+            preds = (probs > 0.5).float()
 
-                for i in range(labels.shape[0]):
-                    tp = preds[i] * labels[i]
-                    fp = preds[i] * (1 - labels[i])
-                    fn = (1 - preds[i]) * labels[i]
+            for i in range(labels.shape[0]):
+                tp = preds[i] * labels[i]
+                fp = preds[i] * (1 - labels[i])
+                fn = (1 - preds[i]) * labels[i]
 
-                    for c in range(4):
-                        class_tp[c] += tp[c].item()
-                        class_fp[c] += fp[c].item()
-                        class_fn[c] += fn[c].item()
+                for c in range(4):
+                    class_tp[c] += tp[c].item()
+                    class_fp[c] += fp[c].item()
+                    class_fn[c] += fn[c].item()
 
-                    tp_sum = tp.sum().item()
-                    fp_sum = fp.sum().item()
-                    fn_sum = fn.sum().item()
+                tp_sum = tp.sum().item()
+                fp_sum = fp.sum().item()
+                fn_sum = fn.sum().item()
 
-                    precision = tp_sum / (tp_sum + fp_sum + 1e-8)
-                    recall = tp_sum / (tp_sum + fn_sum + 1e-8)
-                    f1 = 2 * precision * recall / (precision + recall + 1e-8)
+                precision = tp_sum / (tp_sum + fp_sum + 1e-8)
+                recall = tp_sum / (tp_sum + fn_sum + 1e-8)
+                f1 = 2 * precision * recall / (precision + recall + 1e-8)
 
-                    total_precision += precision
-                    total_recall += recall
-                    total_f1 += f1
+                total_precision += precision
+                total_recall += recall
+                total_f1 += f1
 
-                total += labels.shape[0]  # Accumulate total, not reset!
+            total += labels.shape[0]
 
-                pbar.set_postfix({
-                    "loss": f"{loss.item():.3f}",
-                    "f1": f"{100*total_f1/total:.1f}%"
-                })
-            else:
-                # Single-label: accuracy
-                preds = torch.argmax(species_logits, dim=1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
+            pbar.set_postfix({
+                "loss": f"{loss.item():.3f}",
+                "f1": f"{100*total_f1/total:.1f}%"
+            })
+        elif task == "counting":
+            # Counting: MAE, RMSE
+            pred_counts = species_logits.clamp(min=0)
+            true_counts = labels.clamp(min=0)
+            
+            mae = F.l1_loss(pred_counts, true_counts)
+            rmse = torch.sqrt(F.mse_loss(pred_counts, true_counts))
+            
+            total_mae += mae.item() * len(labels)
+            total_rmse += rmse.item() * len(labels)
+            total_samples += len(labels)
+            
+            pbar.set_postfix({
+                "loss": f"{loss.item():.3f}",
+                "mae": f"{mae.item():.3f}",
+            })
+        else:
+            # Single-label: accuracy
+            preds = torch.argmax(species_logits, dim=1)
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
 
-                pbar.set_postfix({"loss": f"{loss.item():.3f}", "acc": f"{100*correct/total:.1f}%"})
+            pbar.set_postfix({"loss": f"{loss.item():.3f}", "acc": f"{100*correct/total:.1f}%"})
 
-        if hasattr(self.model, 'task') and self.model.task == "presence":
+        # Return metrics based on task
+        if task == "presence":
             # Per-class F1
             class_precision = class_tp / (class_tp + class_fp + 1e-8)
             class_recall = class_tp / (class_tp + class_fn + 1e-8)
             class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
-            
+
             return {
                 "loss": total_loss / len(loader),
                 "loss_jepa": total_loss_jepa / len(loader),
@@ -440,6 +464,14 @@ class JEPATrainer(BaseTrainer):
                 "f1_snapper": class_f1[1].item(),
                 "f1_cod": class_f1[2].item(),
                 "f1_empty": class_f1[3].item(),
+            }
+        elif task == "counting":
+            return {
+                "loss": total_loss / len(loader),
+                "loss_jepa": total_loss_jepa / len(loader),
+                "loss_cls": total_loss_cls / len(loader),
+                "mae": total_mae / total_samples,
+                "rmse": total_rmse / total_samples,
             }
         else:
             return {
@@ -455,17 +487,22 @@ class JEPATrainer(BaseTrainer):
         total_loss = 0
         total_loss_jepa = 0
         total_loss_cls = 0
-        
+
         # Classification metrics
         correct = 0
         total = 0
         total_sim = 0
-        
+
         # Presence task metrics
         total_precision = 0
         total_recall = 0
         total_f1 = 0
-        
+
+        # Counting task metrics
+        total_mae = 0
+        total_rmse = 0
+        total_samples = 0
+
         # Per-class F1 (for presence task)
         class_tp = torch.zeros(4)
         class_fp = torch.zeros(4)
@@ -488,7 +525,9 @@ class JEPATrainer(BaseTrainer):
                 total_sim += sim.item()
 
                 # Task-specific metrics
-                if hasattr(self.model, 'task') and self.model.task == "presence":
+                task = getattr(self.model, 'task', 'presence')
+                
+                if task == "presence":
                     # Multi-label: precision, recall, F1
                     probs = torch.sigmoid(species_logits)
                     preds = (probs > 0.5).float()
@@ -515,19 +554,31 @@ class JEPATrainer(BaseTrainer):
                         total_recall += recall
                         total_f1 += f1
 
-                    total += labels.shape[0]  # Accumulate total, not reset!
+                    total += labels.shape[0]
+                elif task == "counting":
+                    # Counting: MAE, RMSE
+                    pred_counts = species_logits.clamp(min=0)
+                    true_counts = labels.clamp(min=0)
+                    
+                    mae = F.l1_loss(pred_counts, true_counts)
+                    rmse = torch.sqrt(F.mse_loss(pred_counts, true_counts))
+                    
+                    total_mae += mae.item() * len(labels)
+                    total_rmse += rmse.item() * len(labels)
+                    total_samples += len(labels)
                 else:
                     # Single-label: accuracy
                     preds = torch.argmax(species_logits, dim=1)
                     correct += (preds == labels).sum().item()
                     total += labels.size(0)
 
-        # Per-class F1
-        class_precision = class_tp / (class_tp + class_fp + 1e-8)
-        class_recall = class_tp / (class_tp + class_fn + 1e-8)
-        class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+        # Return metrics based on task
+        if task == "presence":
+            # Per-class F1
+            class_precision = class_tp / (class_tp + class_fp + 1e-8)
+            class_recall = class_tp / (class_tp + class_fn + 1e-8)
+            class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
 
-        if hasattr(self.model, 'task') and self.model.task == "presence":
             return {
                 "loss": total_loss / len(loader),
                 "loss_jepa": total_loss_jepa / len(loader),
@@ -540,6 +591,15 @@ class JEPATrainer(BaseTrainer):
                 "f1_snapper": class_f1[1].item(),
                 "f1_cod": class_f1[2].item(),
                 "f1_empty": class_f1[3].item(),
+            }
+        elif task == "counting":
+            return {
+                "loss": total_loss / len(loader),
+                "loss_jepa": total_loss_jepa / len(loader),
+                "loss_cls": total_loss_cls / len(loader),
+                "sim": total_sim / len(loader),
+                "mae": total_mae / total_samples,
+                "rmse": total_rmse / total_samples,
             }
         else:
             return {

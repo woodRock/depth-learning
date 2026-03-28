@@ -375,8 +375,8 @@ def main() -> None:
     jepa_parser.add_argument("--weight-decay", type=float, default=0.05)
     jepa_parser.add_argument("--label-smoothing", type=float, default=0.1)
     jepa_parser.add_argument("--use-focal-loss", action="store_true", default=True)
-    jepa_parser.add_argument("--task", type=str, default="presence", choices=["presence", "single_label"],
-                            help="Task type: presence (multi-label) or single_label (default: presence)")
+    jepa_parser.add_argument("--task", type=str, default="presence", choices=["presence", "single_label", "counting"],
+                            help="Task type: presence (multi-label), single_label, or counting (default: presence)")
     jepa_parser.add_argument("--rotation-degrees", type=int, default=30)
     jepa_parser.add_argument("--n-chunks", type=int, default=10)
     jepa_parser.add_argument("--sigreg-weight", type=float, default=0.1)
