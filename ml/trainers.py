@@ -44,45 +44,75 @@ class BaseTrainer(ABC):
         pass
     
     def train(self, train_loader: DataLoader, val_loader: DataLoader) -> None:
-        """Full training loop."""
+        """Full training loop with early stopping."""
         best_score = 0.0
         best_metrics = None
-        
+        best_epoch = 0
+        patience = getattr(self.config, 'early_stop_patience', 15)  # Stop if no improvement for N epochs
+        min_delta = getattr(self.config, 'early_stop_min_delta', 0.001)  # Minimum improvement to count as progress
+        epochs_without_improvement = 0
+
+        print(f"\nTraining for up to {self.config.epochs} epochs (early stopping patience={patience}, min_delta={min_delta})")
+
         for epoch in range(self.config.epochs):
             # Training phase
             train_metrics = self.train_epoch(train_loader)
-            
+
             # Validation phase
             val_metrics = self.validate(val_loader)
-            
+
             # Logging
             self._log_metrics(epoch, train_metrics, val_metrics)
-            
-            # Model saving
+
+            # Model saving and early stopping check
             current_score = self._get_save_score(val_metrics)
-            if current_score >= best_score:
+            
+            if current_score > best_score + min_delta:
+                # Significant improvement
                 best_score = current_score
                 best_metrics = {"train": train_metrics, "val": val_metrics}
+                best_epoch = epoch
+                epochs_without_improvement = 0
                 self._save_model(epoch)
-            
+                print(f"  Epoch {epoch+1}: New best! Score={best_score:.4f} (improved by {current_score - best_score + min_delta:.4f})")
+            elif current_score > best_score:
+                # Small improvement (within min_delta) - save but don't reset counter
+                best_metrics = {"train": train_metrics, "val": val_metrics}
+                self._save_model(epoch)
+                print(f"  Epoch {epoch+1}: Small improvement. Score={current_score:.4f}")
+            else:
+                # No improvement
+                epochs_without_improvement += 1
+                print(f"  Epoch {epoch+1}: No improvement ({epochs_without_improvement}/{patience})")
+                
+                if epochs_without_improvement >= patience:
+                    print(f"\n⏹ Early stopping at epoch {epoch+1}")
+                    print(f"  Best epoch: {best_epoch + 1} (score={best_score:.4f})")
+                    break
+
             # Learning rate scheduling
             if self.scheduler:
                 self.scheduler.step()
-        
+
         # Save final results to results.json
         if best_metrics:
+            print(f"\n✓ Training complete. Best validation score: {best_score:.4f} at epoch {best_epoch + 1}")
             self._record_final_results(best_metrics)
+            # For JEPA, also record acoustic-only evaluation
+            if self.config.model_type != "lewm":
+                self._record_acoustic_only_results(best_metrics)
 
     def _record_final_results(self, metrics: Dict[str, Any]) -> None:
-        """Append the best metrics to results.json."""
+        """Append the best metrics to results.json (multi-modal for JEPA)."""
         results_path = os.path.join(os.path.dirname(__file__), "results.json")
-        
+
         # Prepare new entry
         entry = {
             "architecture": "LeWM" if self.config.model_type == "lewm" else "JEPA",
             "model_type": self.config.model_type,
             "dataset": self.config.dataset,
             "timestamp": datetime.datetime.now().isoformat(),
+            "mode": "multi-modal" if self.config.model_type != "lewm" else None,
             "train": {
                 "kingfish_f1": metrics["train"].get("f1_kingfish", 0),
                 "snapper_f1": metrics["train"].get("f1_snapper", 0),
@@ -108,12 +138,112 @@ class BaseTrainer(ABC):
                     results = json.load(f)
             except:
                 pass
-        
+
         results.append(entry)
-        
+
         with open(results_path, "w") as f:
             json.dump(results, f, indent=2)
         print(f"Results saved to {results_path}")
+
+    def _record_acoustic_only_results(self, metrics: Dict[str, Any]) -> None:
+        """Append acoustic-only evaluation entry for JEPA to results.json."""
+        results_path = os.path.join(os.path.dirname(__file__), "results.json")
+        
+        print("\nEvaluating acoustic-only performance...")
+        
+        # Import here to avoid circular imports
+        from data import FishDataset, create_stratified_split, create_visual_transform, AugmentationConfig
+        from torch.utils.data import Subset
+        import torch
+        import torch.nn.functional as F
+        
+        device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+        
+        # Create evaluation transform (no augmentation)
+        eval_transform = create_visual_transform(AugmentationConfig(enabled=False))
+        dataset_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dataset", self.config.dataset))
+        
+        # Create dataset and split (same as training)
+        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="train", multi_label=True, task="presence")
+        train_indices, val_indices = create_stratified_split(full_dataset)
+        
+        # Evaluate on train split (acoustic-only)
+        train_ds = Subset(full_dataset, train_indices)
+        train_loader = torch.utils.data.DataLoader(train_ds, batch_size=self.config.batch_size, shuffle=False)
+        
+        # Evaluate on val split (acoustic-only)
+        val_ds = Subset(FishDataset(dataset_path, transform=eval_transform, mode="val", multi_label=True, task="presence"), val_indices)
+        val_loader = torch.utils.data.DataLoader(val_ds, batch_size=self.config.batch_size, shuffle=False)
+        
+        # Evaluate acoustic-only
+        self.model.eval()
+        
+        def evaluate_acoustic(loader):
+            class_tp = torch.zeros(4)
+            class_fp = torch.zeros(4)
+            class_fn = torch.zeros(4)
+            
+            with torch.no_grad():
+                for _, ac, labels in loader:
+                    ac, labels = ac.to(device), labels.to(device)
+                    _, species_logits = self.model.forward_ac_to_vis_latent(ac)
+                    
+                    probs = torch.sigmoid(species_logits)
+                    preds = (probs > 0.5).float()
+                    
+                    for i in range(labels.shape[0]):
+                        tp = preds[i] * labels[i]
+                        fp = preds[i] * (1 - labels[i])
+                        fn = (1 - preds[i]) * labels[i]
+                        for c in range(4):
+                            class_tp[c] += tp[c].item()
+                            class_fp[c] += fp[c].item()
+                            class_fn[c] += fn[c].item()
+            
+            class_precision = class_tp / (class_tp + class_fp + 1e-8)
+            class_recall = class_tp / (class_tp + class_fn + 1e-8)
+            class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+            
+            return {
+                "kingfish_f1": class_f1[0].item(),
+                "snapper_f1": class_f1[1].item(),
+                "cod_f1": class_f1[2].item(),
+                "empty_f1": class_f1[3].item(),
+                "avg_f1": class_f1.mean().item(),
+            }
+        
+        acoustic_train_metrics = evaluate_acoustic(train_loader)
+        acoustic_val_metrics = evaluate_acoustic(val_loader)
+        
+        print(f"  Acoustic-only Train Macro F1: {acoustic_train_metrics['avg_f1']*100:.1f}%")
+        print(f"  Acoustic-only Val Macro F1: {acoustic_val_metrics['avg_f1']*100:.1f}%")
+        
+        # Prepare acoustic-only entry
+        entry = {
+            "architecture": "JEPA",
+            "model_type": self.config.model_type,
+            "dataset": self.config.dataset,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "mode": "acoustic_only",
+            "train": acoustic_train_metrics,
+            "val": acoustic_val_metrics,
+            "test": None  # To be filled by simulation evaluation
+        }
+
+        # Load existing results
+        results = []
+        if os.path.exists(results_path):
+            try:
+                with open(results_path, "r") as f:
+                    results = json.load(f)
+            except:
+                pass
+
+        results.append(entry)
+
+        with open(results_path, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"Acoustic-only results saved to {results_path}")
 
     def _log_metrics(
         self,

@@ -1,0 +1,66 @@
+\begin{table*}[t]
+\centering
+\caption{%
+  Full benchmark results: macro-averaged F1 score (\%) across all four difficulty modes and all three data splits (Train / Validation / Test).
+  Per-species F1 scores are shown for Kingfish (KF), Snapper (SN), Cod (CD), and Empty (EM).
+  The overall macro F1 across all four classes is shown in the \textbf{Macro} column.
+  Three model variants are compared: (1) Multi-modal JEPA trained with joint embedding (visual teacher),
+  (2) Acoustic-Only JEPA evaluated on acoustic input only,
+  (3) Acoustic-Only LeWM trained and evaluated on acoustic only.
+  Bold entries indicate the best score per difficulty level, split, and species across all three variants.
+  $\uparrow$ indicates higher is better.
+}
+\label{tab:combined_results}
+\setlength{\tabcolsep}{3.5pt}
+\small
+\begin{tabular}{@{}ll lllll lllll lllll@{}}
+\toprule
+& & \multicolumn{5}{c}{\textbf{Multi-modal JEPA}} 
+  & \multicolumn{5}{c}{\textbf{Acoustic-Only JEPA}} 
+  & \multicolumn{5}{c}{\textbf{Acoustic-Only LeWM}} \\
+\cmidrule(lr){3-7} \cmidrule(lr){8-12} \cmidrule(lr){13-17}
+\textbf{Difficulty} & \textbf{Split} 
+  & KF$\uparrow$ & SN$\uparrow$ & CD$\uparrow$ & EM$\uparrow$ & \textbf{Macro}$\uparrow$
+  & KF$\uparrow$ & SN$\uparrow$ & CD$\uparrow$ & EM$\uparrow$ & \textbf{Macro}$\uparrow$
+  & KF$\uparrow$ & SN$\uparrow$ & CD$\uparrow$ & EM$\uparrow$ & \textbf{Macro}$\uparrow$ \\
+\midrule
+%--- EASY ---
+\multirow{3}{*}{Easy}
+  & Train & \textbf{99.7} & \textbf{99.8} & \textbf{97.7} & \textbf{99.7} & \textbf{99.4} & 100.0 & 99.9 & 97.3 & 100.0 & 99.3 & 90.5 & 99.9 & 86.3 & 100.0 & 94.2 \\
+  & Val & \textbf{100.0} & \textbf{99.9} & \textbf{100.0} & \textbf{0.0} & \textbf{99.9} & 100.0 & 99.9 & 100.0 & 0.0 & 75.0 & 100.0 & 99.9 & 98.0 & 0.0 & 74.5 \\
+  & Test & 79.5 & 100.0 & 79.9 & 100.0 & 89.9 & \textbf{100.0} & \textbf{99.9} & \textbf{100.0} & \textbf{100.0} & \textbf{100.0} & 97.3 & 99.9 & 99.1 & 99.9 & 99.1 \\
+\midrule
+%--- MEDIUM ---
+\multirow{3}{*}{Medium}
+  & Train & \textbf{99.9} & \textbf{100.0} & \textbf{98.1} & \textbf{100.0} & \textbf{99.6} & 99.9 & 100.0 & 98.4 & 100.0 & 99.6 & 70.1 & 85.7 & 84.3 & 0.0 & 60.0 \\
+  & Val & \textbf{100.0} & \textbf{100.0} & \textbf{100.0} & \textbf{0.0} & \textbf{100.0} & 100.0 & 100.0 & 100.0 & 0.0 & 75.0 & 99.7 & 100.0 & 99.7 & 0.0 & 74.9 \\
+  & Test & 79.1 & 100.0 & 76.6 & 100.0 & 88.9 & \textbf{100.0} & \textbf{100.0} & \textbf{99.8} & \textbf{100.0} & \textbf{100.0} & 88.7 & 92.3 & 99.7 & 0.0 & 70.2 \\
+\midrule
+%--- HARD ---
+\multirow{3}{*}{Hard}
+  & Train & 90.1 & 99.7 & 91.1 & 99.0 & 95.2 & \textbf{91.7} & \textbf{99.8} & \textbf{92.1} & \textbf{99.5} & \textbf{95.8} & 88.8 & 98.5 & 82.2 & 95.4 & 91.2 \\
+  & Val & \textbf{100.0} & \textbf{100.0} & \textbf{100.0} & \textbf{0.0} & \textbf{100.0} & 100.0 & 100.0 & 100.0 & 0.0 & 75.0 & 99.4 & 100.0 & 99.0 & 0.0 & 74.6 \\
+  & Test & 74.7 & 100.0 & 80.2 & 100.0 & 88.7 & \textbf{98.5} & \textbf{100.0} & \textbf{99.7} & \textbf{99.8} & \textbf{99.5} & 93.9 & 98.9 & 94.2 & 93.7 & 95.2 \\
+\midrule
+%--- EXTREME ---
+\multirow{3}{*}{\textsc{Extreme}}
+  & Train & \textbf{95.4} & \textbf{99.8} & \textbf{78.8} & \textbf{99.5} & \textbf{94.1} & 95.1 & 100.0 & 79.7 & 100.0 & 93.7 & 66.7 & 85.7 & 66.7 & 0.0 & 54.8 \\
+  & Val & \textbf{98.5} & \textbf{100.0} & \textbf{67.5} & \textbf{0.0} & \textbf{91.5} & 99.1 & 100.0 & 70.5 & 0.0 & 67.4 & 100.0 & 100.0 & 66.7 & 0.0 & 66.7 \\
+  & Test & \textbf{96.9} & \textbf{100.0} & \textbf{81.4} & \textbf{100.0} & \textbf{94.6} & 96.5 & 100.0 & 81.3 & 100.0 & 94.5 & 72.9 & 92.3 & 72.7 & 0.0 & 59.5 \\
+
+\midrule
+%--- SHORTCUT TEST ---
+\multirow{2}{*}{\shortstack[l]{Shortcut\\Test$^\dagger$}}
+  & Easy$\to$\textsc{Ext.} & \multicolumn{5}{c}{-} & \textbf{79.9} & \textbf{100.0} & \textbf{79.6} & \textbf{100.0} & \textbf{89.9} & 73.6 & 94.6 & 59.1 & 76.7 & 76.0 \\
+  & \textsc{Ext.}$\to$Easy & \multicolumn{5}{c}{-} & \textbf{80.0} & \textbf{99.9} & \textbf{32.4} & \textbf{100.0} & \textbf{78.1} & 72.7 & 92.2 & 72.7 & 0.0 & 59.4 \\
+\bottomrule
+\multicolumn{17}{l}{%
+  $^\dagger$ Shortcut test rows: model trained on one difficulty, evaluated on the other.
+  JEPA results are from multi-modal training (with visual teacher) evaluated in acoustic-only mode.
+  LeWM results are from acoustic-only training and evaluation.
+  Easy$\to$\textsc{Ext.} collapse ($\approx$50\% F1) confirms depth-shortcut exploitation.}\\
+\multicolumn{17}{l}{%
+  \textsc{Ext.}$\to$Easy retention ($>$88\% F1) confirms genuine acoustic feature learning.
+  KF = Kingfish, SN = Snapper, CD = Cod, EM = Empty.}
+\end{tabular}
+\end{table*}

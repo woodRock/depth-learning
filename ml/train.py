@@ -59,6 +59,8 @@ def train_jepa(args: argparse.Namespace) -> None:
         config.weights_dir = f"weights/jepa_{config.dataset}"
     else:
         config.weights_dir = args.weights_dir
+    # Set early stopping patience
+    config.early_stop_patience = args.patience
     device = _get_device()
 
     print(f"--- Starting JEPA Training ({config.model_type.upper()}) on {device} ---")
@@ -76,20 +78,25 @@ def train_jepa(args: argparse.Namespace) -> None:
     transform = create_visual_transform(aug_config)
     dataset_path = _get_dataset_path(config.dataset)
 
-    from data import create_data_loaders, FishDataset
+    from data import FishDataset
     from torch.utils.data import Subset
-    
+
     # Create dataset with task-specific labels
     multi_label = (args.task == "presence")
-    full_dataset = FishDataset(dataset_path, transform=transform, mode="train", multi_label=multi_label, task=args.task)
     
-    # Split into train/val
+    # Create unbalanced dataset for proper stratified splitting
+    # This ensures Empty class is represented in both train and val
+    unbalanced_dataset = FishDataset(dataset_path, transform=transform, mode="val", multi_label=multi_label, task=args.task)
+
+    # Split into train/val using stratified split (preserves class ratios from unbalanced data)
     from data import create_stratified_split
-    train_indices, val_indices = create_stratified_split(full_dataset)
-    
-    train_ds = Subset(full_dataset, train_indices)
-    val_ds = Subset(FishDataset(dataset_path, transform=transform, mode="val", multi_label=multi_label, task=args.task), val_indices)
-    
+    train_indices, val_indices = create_stratified_split(unbalanced_dataset)
+
+    # Use unbalanced dataset for both train and val
+    # The training will be on unbalanced data, but this ensures Empty class is in validation
+    train_ds = Subset(unbalanced_dataset, train_indices)
+    val_ds = Subset(unbalanced_dataset, val_indices)
+
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.batch_size, shuffle=True, drop_last=True)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
 
@@ -119,6 +126,8 @@ def train_lewm(args: argparse.Namespace) -> None:
         config.weights_dir = f"weights/lewm_{config.dataset}"
     else:
         config.weights_dir = args.weights_dir
+    # Set early stopping patience
+    config.early_stop_patience = args.patience
     device = _get_device()
 
     print(f"--- Starting LeWorldModel Training on {device} ---")
@@ -138,22 +147,25 @@ def train_lewm(args: argparse.Namespace) -> None:
 
     from data import FishDataset
     from torch.utils.data import Subset
-    
-    # Create dataset with multi_label=True and task-specific labels
-    full_dataset = FishDataset(
-        dataset_path, 
-        transform=transform, 
-        mode="train", 
+
+    # Create unbalanced dataset for proper stratified splitting
+    # This ensures Empty class is represented in both train and val
+    unbalanced_dataset = FishDataset(
+        dataset_path,
+        transform=transform,
+        mode="val",
         multi_label=True,
         task=args.task
     )
-    
-    # Split into train/val
+
+    # Split into train/val using stratified split (preserves class ratios from unbalanced data)
     from data import create_stratified_split
-    train_indices, val_indices = create_stratified_split(full_dataset)
-    
-    train_ds = Subset(full_dataset, train_indices)
-    val_ds = Subset(FishDataset(dataset_path, transform=transform, mode="val", multi_label=True, task=args.task), val_indices)
+    train_indices, val_indices = create_stratified_split(unbalanced_dataset)
+
+    # Use unbalanced dataset for both train and val
+    # The training will be on unbalanced data, but this ensures Empty class is in validation
+    train_ds = Subset(unbalanced_dataset, train_indices)
+    val_ds = Subset(unbalanced_dataset, val_indices)
     
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=config.batch_size, shuffle=True, drop_last=True)
     val_loader = torch.utils.data.DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
@@ -309,6 +321,7 @@ def main() -> None:
     jepa_parser.add_argument("--rotation-degrees", type=int, default=30)
     jepa_parser.add_argument("--n-chunks", type=int, default=10)
     jepa_parser.add_argument("--sigreg-weight", type=float, default=0.1)
+    jepa_parser.add_argument("--patience", type=int, default=15, help="Early stopping patience (default: 15)")
     # --with-aug is in add_common_args, just set default to True
     add_common_args(jepa_parser)
     jepa_parser.set_defaults(func=train_jepa, with_aug=True)  # Enable aug by default for JEPA
@@ -324,6 +337,7 @@ def main() -> None:
     lewm_parser.add_argument("--rotation-degrees", type=int, default=30)
     lewm_parser.add_argument("--n-chunks", type=int, default=10)
     lewm_parser.add_argument("--sigreg-weight", type=float, default=0.1)
+    lewm_parser.add_argument("--patience", type=int, default=15, help="Early stopping patience (default: 15)")
     add_common_args(lewm_parser)
     lewm_parser.set_defaults(func=train_lewm)
 

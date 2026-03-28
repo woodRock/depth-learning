@@ -385,6 +385,73 @@ async def evaluate(
         "metrics": test_results
     }
 
+
+@app.post("/save_test_results")
+async def save_test_results(results: dict):
+    """Save test evaluation results from Bevy simulation.
+    
+    Args:
+        results: Dictionary containing:
+            - architecture: "JEPA" or "LeWM"
+            - dataset: dataset trained on
+            - model_type: "multi-modal" or "acoustic_only"
+            - test_metrics: {kingfish_f1, snapper_f1, cod_f1, empty_f1, avg_f1}
+            - num_samples: number of test samples evaluated
+    """
+    results_path = os.path.join(os.path.dirname(__file__), "results.json")
+    
+    try:
+        with open(results_path, "r") as f:
+            existing = json.load(f)
+        
+        # Find matching entry and update test field
+        found = False
+        for i, entry in enumerate(existing):
+            if entry.get("shortcut_test", False):
+                continue
+            
+            if (entry["architecture"] == results["architecture"] and
+                entry["dataset"] == results["dataset"]):
+                
+                entry_mode = entry.get("mode", "multi-modal")
+                incoming_mode = results.get("model_type", "multi-modal")
+                
+                # Match modes
+                if (entry_mode is None and incoming_mode == "multi-modal") or \
+                   (entry_mode == incoming_mode):
+                    existing[i]["test"] = results["test_metrics"]
+                    existing[i]["test_samples"] = results.get("num_samples", 0)
+                    found = True
+                    print(f"Updated test results for {results['architecture']} {results['dataset']} ({incoming_mode})")
+                    break
+        
+        if not found:
+            # Create new entry if no match found
+            import datetime
+            new_entry = {
+                "architecture": results["architecture"],
+                "model_type": "transformer" if results["architecture"] == "JEPA" else "lewm",
+                "dataset": results["dataset"],
+                "mode": results.get("model_type", "multi-modal"),
+                "timestamp": datetime.datetime.now().isoformat(),
+                "train": None,
+                "val": None,
+                "test": results["test_metrics"],
+                "test_samples": results.get("num_samples", 0)
+            }
+            existing.append(new_entry)
+            print(f"Created new test entry for {results['architecture']} {results['dataset']}")
+        
+        with open(results_path, "w") as f:
+            json.dump(existing, f, indent=2)
+        
+        print(f"Saved test results to {results_path}")
+        return {"status": "success", "message": "Test results saved"}
+    
+    except Exception as e:
+        print(f"Error saving test results: {e}")
+        return {"status": "error", "message": str(e)}
+
 @app.post("/predict_acoustic")
 async def predict(file: UploadFile = File(...)):
     global prediction_history
