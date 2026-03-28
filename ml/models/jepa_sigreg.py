@@ -43,6 +43,11 @@ class MultimodalJEPASigReg(nn.Module):
     - Visual and acoustic encoders (JEPA)
     - Gaussian latent regularization (SigReg from LeWM)
     - Optional world reconstruction decoder
+    
+    Supports three task types:
+    - "presence": Multi-label presence/absence detection (sigmoid output)
+    - "single_label": Single-label classification (softmax output)
+    - "counting": Count regression (ReLU output for non-negative counts)
     """
     def __init__(
         self,
@@ -54,6 +59,7 @@ class MultimodalJEPASigReg(nn.Module):
         sigreg_weight=0.1,
         use_decoder=False,
         n_classes=4,
+        max_count=30.0,  # Maximum count for counting task
     ):
         super().__init__()
         
@@ -62,6 +68,7 @@ class MultimodalJEPASigReg(nn.Module):
         self.sigreg_weight = sigreg_weight
         self.use_decoder = use_decoder
         self.task = task
+        self.max_count = max_count
         
         # 1. Visual Target Encoder (frozen)
         resnet = models.resnet18(weights=ResNet18_Weights.DEFAULT)
@@ -95,8 +102,26 @@ class MultimodalJEPASigReg(nn.Module):
                 sigma=1.0
             )
         
-        # 5. Classification Head
-        if task == "presence":
+        # 5. Task-specific Head
+        if task == "counting":
+            # Counting: ReLU activation for non-negative counts
+            # Output is scaled to [0, max_count] range
+            self.classifier = nn.Sequential(
+                nn.Linear(embed_dim, 768),
+                nn.BatchNorm1d(768),
+                nn.GELU(),
+                nn.Dropout(0.4),
+                nn.Linear(768, 256),
+                nn.BatchNorm1d(256),
+                nn.GELU(),
+                nn.Dropout(0.3),
+                nn.Linear(256, 64),
+                nn.GELU(),
+                nn.Linear(64, n_classes),
+                # No activation here - apply tanh scaling in forward
+            )
+            self.criterion_cls = nn.MSELoss()
+        elif task == "presence":
             # Multi-label: sigmoid output
             self.classifier = nn.Sequential(
                 nn.Linear(embed_dim, 768),
@@ -144,12 +169,15 @@ class MultimodalJEPASigReg(nn.Module):
         Args:
             vis: Visual images (B, 3, 224, 224)
             ac: Acoustic history (B, 24576) flattened
-            labels: Ground truth labels (B, 4) for multi-label or (B,) for single-label
+            labels: Ground truth labels
+                - For "presence": (B, 4) multi-hot vector
+                - For "single_label": (B,) class indices
+                - For "counting": (B, 4) count values
         
         Returns:
             predicted_target: Predicted visual latent
             target_latent: Target visual latent (from frozen encoder)
-            species_logits: Classification logits
+            species_logits: Classification logits (or counts for counting task)
             recon_img: Reconstructed image (if use_decoder)
             sigreg_loss: SigReg regularization loss (if use_sigreg)
         """
@@ -165,8 +193,16 @@ class MultimodalJEPASigReg(nn.Module):
         predicted_target = self.predictor(context_latent)
         predicted_target = F.normalize(predicted_target, p=2, dim=1)
         
-        # Classification from acoustic latent
-        species_logits = self.classifier(context_latent)
+        # Task-specific output
+        raw_logits = self.classifier(context_latent)
+        
+        if self.task == "counting":
+            # Scale output to [0, max_count] using tanh
+            species_logits = torch.tanh(raw_logits / 5.0) * self.max_count
+            species_logits = species_logits.clamp(min=0)  # Ensure non-negative
+        else:
+            # For presence and single_label, use raw logits
+            species_logits = raw_logits
         
         # World reconstruction (optional)
         recon_img = None
@@ -199,7 +235,7 @@ class MultimodalJEPASigReg(nn.Module):
         Args:
             predicted_target: Predicted visual latent
             target_latent: Target visual latent
-            species_logits: Classification logits
+            species_logits: Classification logits (or counts for counting)
             labels: Ground truth labels
             recon_img: Reconstructed image
             target_img: Target image for reconstruction loss
@@ -209,17 +245,22 @@ class MultimodalJEPASigReg(nn.Module):
         Returns:
             total_loss: Combined loss
             loss_jepa: JEPA prediction loss
-            loss_cls: Classification loss
+            loss_cls: Classification/counting loss
             loss_sigreg: SigReg regularization loss
             loss_recon: Reconstruction loss (if applicable)
         """
         # JEPA loss: cosine similarity
         loss_jepa = (1.0 - F.cosine_similarity(predicted_target, target_latent, dim=-1)).mean()
         
-        # Classification loss
-        if self.task == "presence":
+        # Task-specific loss
+        if self.task == "counting":
+            # Counting: MSE between predicted and actual counts
+            loss_cls = self.criterion_cls(species_logits, labels.clamp(min=0))
+        elif self.task == "presence":
+            # Multi-label: BCE with logits
             loss_cls = self.criterion_cls(species_logits, labels)
         else:
+            # Single-label: Cross-entropy or focal loss
             loss_cls = self.criterion_cls(species_logits, labels)
         
         # SigReg loss
