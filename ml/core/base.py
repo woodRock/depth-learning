@@ -15,7 +15,7 @@ from tqdm import tqdm
 import wandb
 
 from utils.config import TrainingConfig
-from data.data import create_visual_transform, AugmentationConfig
+from data import create_visual_transform, AugmentationConfig
 from utils.logging import get_logger
 
 logger = get_logger(__name__)

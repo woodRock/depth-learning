@@ -22,7 +22,7 @@ from utils.config import (
     MAEConfig,
     add_common_args,
 )
-from data.data import create_visual_transform, AugmentationConfig, create_data_loaders, ImageLatentDataset
+from data import create_visual_transform, AugmentationConfig, create_data_loaders, ImageLatentDataset
 from core import get_trainer
 from utils.logging import setup_logging, get_logger
 
