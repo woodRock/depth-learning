@@ -149,7 +149,6 @@ def main() -> None:
     lewm_parser.add_argument("--lr", type=float, default=3e-4)
     lewm_parser.add_argument("--batch-size", type=int, default=32)
     lewm_parser.add_argument("--task", type=str, default="presence", choices=["presence", "counting"])
-    lewm_parser.add_argument("--sigreg-weight", type=float, default=0.1)
     add_common_args(lewm_parser)
 
     # LeWM++
@@ -159,7 +158,6 @@ def main() -> None:
     lewm_plus_parser.add_argument("--lr", type=float, default=3e-4)
     lewm_plus_parser.add_argument("--batch-size", type=int, default=32)
     lewm_plus_parser.add_argument("--task", type=str, default="presence", choices=["presence", "counting"])
-    lewm_plus_parser.add_argument("--sigreg-weight", type=float, default=0.1)
     add_common_args(lewm_plus_parser)
 
     # Decoder
