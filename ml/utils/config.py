@@ -150,3 +150,15 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         default="weights",
         help="Directory to save model weights"
     )
+    parser.add_argument(
+        "--rotation-degrees",
+        type=int,
+        default=30,
+        help="Max rotation angle for augmentation (default: 30)"
+    )
+    parser.add_argument(
+        "--n-chunks",
+        type=int,
+        default=10,
+        help="Number of chunks for acoustic processing (default: 10)"
+    )

@@ -106,7 +106,7 @@ def train_jepa(args: argparse.Namespace) -> None:
     from torch.utils.data import Subset
 
     # Create dataset with task-specific labels
-    multi_label = (args.task == "presence")
+    multi_label = (args.task in ["presence", "counting"])
     
     # Create unbalanced dataset for proper stratified splitting
     # This ensures Empty class is represented in both train and val
@@ -170,7 +170,7 @@ def train_jepa_sigreg(args: argparse.Namespace) -> None:
     from data.data import FishDataset
     from torch.utils.data import Subset
 
-    multi_label = (args.task == "presence")
+    multi_label = (args.task in ["presence", "counting"])
     unbalanced_dataset = FishDataset(dataset_path, transform=transform, mode="val", multi_label=multi_label, task=args.task)
 
     from data.data import create_stratified_split
@@ -229,7 +229,7 @@ def train_lewm_plus(args: argparse.Namespace) -> None:
     from data.data import FishDataset
     from torch.utils.data import Subset
 
-    multi_label = (args.task == "presence")
+    multi_label = (args.task in ["presence", "counting"])
     unbalanced_dataset = FishDataset(
         dataset_path,
         transform=transform,
@@ -434,9 +434,10 @@ def _get_device() -> torch.device:
 
 def _get_dataset_path(dataset: str) -> str:
     """Get absolute path to dataset."""
-    return os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "dataset", dataset)
-    )
+    # Get the project root directory (parent of ml/)
+    ml_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    project_root = os.path.dirname(ml_dir)
+    return os.path.join(project_root, "dataset", dataset)
 
 
 def main() -> None:
@@ -466,8 +467,6 @@ def main() -> None:
     jepa_parser.add_argument("--use-focal-loss", action="store_true", default=True)
     jepa_parser.add_argument("--task", type=str, default="presence", choices=["presence", "single_label", "counting"],
                             help="Task type: presence (multi-label), single_label, or counting (default: presence)")
-    jepa_parser.add_argument("--rotation-degrees", type=int, default=30)
-    jepa_parser.add_argument("--n-chunks", type=int, default=10)
     jepa_parser.add_argument("--sigreg-weight", type=float, default=0.1)
     jepa_parser.add_argument("--patience", type=int, default=15, help="Early stopping patience (default: 15)")
     # --with-aug is in add_common_args, just set default to True
@@ -501,8 +500,6 @@ def main() -> None:
     lewm_parser.add_argument("--weight-decay", type=float, default=0.05)
     lewm_parser.add_argument("--task", type=str, default="presence", choices=["presence", "counting"],
                             help="Task type: presence (presence/absence) or counting (fish counts)")
-    lewm_parser.add_argument("--rotation-degrees", type=int, default=30)
-    lewm_parser.add_argument("--n-chunks", type=int, default=10)
     lewm_parser.add_argument("--sigreg-weight", type=float, default=0.1)
     lewm_parser.add_argument("--patience", type=int, default=15, help="Early stopping patience (default: 15)")
     add_common_args(lewm_parser)
