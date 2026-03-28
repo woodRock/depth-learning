@@ -47,54 +47,72 @@ def get_device():
 
 def load_jepa_model(dataset, device, acoustic_only=False):
     """Load JEPA model."""
-    weights_dir = Path(__file__).parent / "weights" / f"jepa_{dataset}"
+    # Windows-compatible path handling
+    script_dir = Path(__file__).parent
+    weights_dir = script_dir / "weights" / f"jepa_{dataset}"
     config_path = weights_dir / "model_config.json"
     weights_path = weights_dir / "fish_clip_model.pth"
     
+    # Debug: print path for troubleshooting
+    print(f"  Looking for weights at: {weights_path.absolute()}")
+    
     if not weights_path.exists():
+        print(f"  ✗ Weights not found at: {weights_path}")
         return None, None
     
     with open(config_path, "r") as f:
         config = json.load(f)
-    
+
     from models.acoustic import TransformerEncoder
     from models.jepa import CrossModalJEPA
-    
+
     embed_dim = config.get("config", {}).get("embed_dim", 256)
     ac_encoder = TransformerEncoder(embed_dim=embed_dim)
-    
+
     model = CrossModalJEPA(
         ac_encoder=ac_encoder,
         embed_dim=embed_dim,
         use_focal_loss=True,
         task="counting",
     ).to(device)
-    
+
     state_dict = torch.load(weights_path, map_location=device, weights_only=False)
     model.load_state_dict(state_dict, strict=False)
     model.eval()
-    
+
     return model, "jepa"
 
 
 def load_jepa_sigreg_model(dataset, device):
     """Load JEPA+SigReg model."""
-    weights_dir = Path(__file__).parent / "weights" / f"jepa_sigreg_{dataset}"
-    config_path = weights_dir / "model_config.json"
-    weights_path = weights_dir / "fish_clip_model.pth"
+    # Windows-compatible path handling using os.path
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    weights_dir = os.path.join(script_dir, "weights", f"jepa_sigreg_{dataset}")
+    config_path = os.path.join(weights_dir, "model_config.json")
+    weights_path = os.path.join(weights_dir, "fish_clip_model.pth")
     
-    if not weights_path.exists():
+    # Debug: print path for troubleshooting
+    print(f"  Looking for weights at: {weights_path}")
+    print(f"  File exists: {os.path.exists(weights_path)}")
+    
+    if not os.path.exists(weights_path):
+        print(f"  ✗ Weights not found!")
+        # List what IS in the weights directory
+        if os.path.exists(os.path.dirname(weights_path)):
+            files = os.listdir(os.path.dirname(weights_path))
+            print(f"  Files in directory: {files}")
         return None, None
-    
+
     with open(config_path, "r") as f:
         config = json.load(f)
-    
+
     from models.acoustic import TransformerEncoder
     from models.jepa_sigreg import MultimodalJEPASigReg
-    
+
     embed_dim = config.get("config", {}).get("embed_dim", 256)
     ac_encoder = TransformerEncoder(embed_dim=embed_dim)
-    
+
     model = MultimodalJEPASigReg(
         ac_encoder=ac_encoder,
         embed_dim=embed_dim,
@@ -103,11 +121,11 @@ def load_jepa_sigreg_model(dataset, device):
         use_sigreg=True,
         sigreg_weight=config.get("config", {}).get("sigreg_weight", 0.1),
     ).to(device)
-    
+
     state_dict = torch.load(weights_path, map_location=device, weights_only=False)
     model.load_state_dict(state_dict, strict=False)
     model.eval()
-    
+
     return model, "jepa_sigreg"
 
 
@@ -251,12 +269,15 @@ def main():
         print(f"\n{'='*70}")
         print(f"Evaluating: {model_name}")
         print(f"{'='*70}")
-        
+
         for dataset in datasets:
             print(f"\n  Dataset: {dataset}...")
-            
+            print(f"  Calling load function: {load_fn.__name__ if hasattr(load_fn, '__name__') else 'lambda'}")
+
             model, model_type = load_fn(dataset, device)
             
+            print(f"  Returned: model={model}, model_type={model_type}")
+
             if model is None:
                 print(f"    ⚠ Weights not found for {model_name} on {dataset}")
                 continue
