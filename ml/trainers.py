@@ -67,7 +67,17 @@ class BaseTrainer(ABC):
             # Model saving and early stopping check
             current_score = self._get_save_score(val_metrics)
             
-            # Check for improvement (with tolerance for floating point)
+            # Check for perfect score FIRST (stop immediately)
+            if current_score >= 0.9999:  # Effectively 1.0 with floating point tolerance
+                best_score = current_score
+                best_metrics = {"train": train_metrics, "val": val_metrics}
+                best_epoch = epoch
+                self._save_model(epoch)
+                print(f"  Epoch {epoch+1}: PERFECT SCORE! Score={best_score:.4f}")
+                print(f"\n⏹ Perfect validation accuracy achieved! Stopping immediately.")
+                break
+            
+            # Check for improvement
             improvement = current_score - best_score
             
             if improvement > min_delta:
@@ -78,13 +88,8 @@ class BaseTrainer(ABC):
                 epochs_without_improvement = 0  # Reset counter
                 self._save_model(epoch)
                 print(f"  Epoch {epoch+1}: New best! Score={best_score:.4f} (improved by {improvement:.4f})")
-                
-                # Early exit if perfect score
-                if best_score >= 0.9999:
-                    print(f"\n⏹ Perfect score achieved! Stopping early.")
-                    break
             elif improvement > 0:
-                # Very small improvement (within min_delta) - still counts as improvement
+                # Very small improvement (within min_delta)
                 best_metrics = {"train": train_metrics, "val": val_metrics}
                 epochs_without_improvement = 0  # Reset counter
                 self._save_model(epoch)
