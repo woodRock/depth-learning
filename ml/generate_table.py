@@ -7,6 +7,11 @@ Supports three task types:
   - majority: Single-label classification (accuracy)
   - counting: Fish count regression (MAE/RMSE)
 
+Models:
+  - JEPA: Multi-modal with visual teacher
+  - LeWM: Acoustic-only world model
+  - LeWM++: Multi-modal JEPA + SigReg (our proposed method)
+
 Usage:
     python generate_table.py                          # Default: presence task
     python generate_table.py --task presence          # Presence/absence
@@ -18,6 +23,18 @@ import json
 import os
 import argparse
 from collections import defaultdict
+
+
+# Architecture name mapping for tables
+ARCH_NAMES = {
+    "JEPA": "JEPA",
+    "LeWM": "LeWM",
+    "JEPA_SigReg": "LeWM++",
+    "JEPA (Multi-modal)": "JEPA",
+    "JEPA (Acoustic-Only)": "JEPA (Acoustic)",
+    "JEPA+SigReg": "LeWM++",
+    "LeWM": "LeWM",
+}
 
 
 def generate_presence_table(results):

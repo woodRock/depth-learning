@@ -1,0 +1,18 @@
+name: counting_all
+experiments:
+- model: jepa
+  dataset: all
+  task: counting
+  epochs: 100
+  seeds: 3
+- model: lewm
+  dataset: all
+  task: counting
+  epochs: 100
+  seeds: 3
+- model: lewm_plus
+  dataset: all
+  task: counting
+  epochs: 100
+  seeds: 3
+  sigreg_weight: 0.1
