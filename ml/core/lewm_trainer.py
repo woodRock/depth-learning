@@ -17,6 +17,7 @@ import wandb
 from utils.config import TrainingConfig
 from data.data import create_visual_transform, AugmentationConfig
 from utils.logging import get_logger
+from utils.metrics import get_task_metrics
 
 logger = get_logger(__name__)
 
@@ -43,42 +44,30 @@ class LeWMTrainer(BaseTrainer):
         ).to(self.device)
 
     def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
-        """Train LeWM for one epoch with task-specific loss."""
+        """Train LeWM for one epoch with task-specific metrics."""
         self.model.train()
         total_loss = 0
         total_loss_pred = 0
         total_loss_cls = 0
         total_loss_sigreg = 0
         total_loss_recon = 0
-
-        # Multi-label metrics
-        total_precision = 0
-        total_recall = 0
-        total_f1 = 0
-        total_mae = 0
-        total_rmse = 0
+        
+        # Accumulators for batch-wise metric calculation
         total_samples = 0
-
-        # Per-class F1
-        class_tp = torch.zeros(4)
-        class_fp = torch.zeros(4)
-        class_fn = torch.zeros(4)
+        batch_metrics_sum = {}
 
         # Get task once at the beginning
-        task = getattr(self.model, 'task', 'presence')
+        task = self.task
 
         pbar = tqdm(loader, desc="Training")
         for vis, ac, labels in pbar:
-            # labels is now (B, 4) multi-hot vector
             vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
 
             self.optimizer.zero_grad()
             pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
 
-            # Compute reconstruction target (denormalize visual image)
+            # Compute reconstruction target
             if self.model.use_decoder:
-                # Denormalize target image from [-1, 1] (roughly) to [0, 1]
-                # Using ImageNet normalization constants as defined in data.py
                 inv_normalize = transforms.Normalize(
                     mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
                     std=[1/0.229, 1/0.224, 1/0.225],
@@ -105,63 +94,29 @@ class LeWMTrainer(BaseTrainer):
             total_loss_sigreg += sigreg_loss.item()
             total_loss_recon += recon_loss.item()
 
-            # Compute task-specific metrics
+            # Calculate task-specific metrics using unified utility
+            batch_metrics = get_task_metrics(task, species_logits, labels)
+            
+            # Accumulate metrics (weighted by batch size)
+            batch_size = len(labels)
+            for key, value in batch_metrics.items():
+                if key not in batch_metrics_sum:
+                    batch_metrics_sum[key] = 0.0
+                batch_metrics_sum[key] += value * batch_size
+            
+            total_samples += batch_size
+
+            # Display metrics
             if task == "counting":
-                # Counting metrics: MAE, RMSE on original scale
-                # Apply same scaling as loss: tanh(x/5) * 30
-                pred_counts = torch.tanh(species_logits / 5.0) * 30.0
-                pred_counts = pred_counts.clamp(min=0)  # Ensure non-negative
-                labels_counts = labels.clamp(min=0)
-                
-                mae = F.l1_loss(pred_counts, labels_counts, reduction='sum')
-                mse = F.mse_loss(pred_counts, labels_counts, reduction='sum')
-                
-                total_mae += mae.item()
-                total_rmse += mse.item()
-                
-                pbar.set_postfix({
-                    "loss": f"{loss.item():.3f}",
-                    "mae": f"{mae.item()/labels.shape[0]:.3f}",
-                })
+                pbar.set_postfix({"loss": f"{loss.item():.3f}", "mae": f"{batch_metrics['mae']:.3f}"})
             else:
-                # Presence/absence metrics: precision, recall, F1
-                probs = torch.sigmoid(species_logits)
-                preds = (probs > 0.5).float()
+                pbar.set_postfix({"loss": f"{loss.item():.3f}", "f1": f"{batch_metrics['f1'] * 100:.1f}%"})
 
-                # Per-sample F1, then average
-                for i in range(labels.shape[0]):
-                    tp = preds[i] * labels[i]
-                    fp = preds[i] * (1 - labels[i])
-                    fn = (1 - preds[i]) * labels[i]
-
-                    for c in range(4):
-                        class_tp[c] += tp[c].item()
-                        class_fp[c] += fp[c].item()
-                        class_fn[c] += fn[c].item()
-
-                    tp_sum = tp.sum().item()
-                    fp_sum = fp.sum().item()
-                    fn_sum = fn.sum().item()
-
-                    precision = tp_sum / (tp_sum + fp_sum + 1e-8)
-                    recall = tp_sum / (tp_sum + fn_sum + 1e-8)
-                    f1 = 2 * precision * recall / (precision + recall + 1e-8)
-
-                    total_precision += precision
-                    total_recall += recall
-                    total_f1 += f1
-
-                pbar.set_postfix({
-                    "loss": f"{loss.item():.3f}",
-                    "f1": f"{100*total_f1/(total_samples + labels.shape[0]):.1f}%"
-                })
-
-            total_samples += labels.shape[0]
-
-        # Per-class F1
-        class_precision = class_tp / (class_tp + class_fp + 1e-8)
-        class_recall = class_tp / (class_tp + class_fn + 1e-8)
-        class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+        # Average metrics over all samples
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in batch_metrics_sum.items()
+        }
 
         return {
             "loss": total_loss / len(loader),
@@ -169,15 +124,7 @@ class LeWMTrainer(BaseTrainer):
             "loss_cls": total_loss_cls / len(loader),
             "loss_sigreg": total_loss_sigreg / len(loader),
             "loss_recon": total_loss_recon / len(loader),
-            "precision": total_precision / total_samples,
-            "recall": total_recall / total_samples,
-            "f1": total_f1 / total_samples,
-            "f1_kingfish": class_f1[0].item(),
-            "f1_snapper": class_f1[1].item(),
-            "f1_cod": class_f1[2].item(),
-            "f1_empty": class_f1[3].item(),
-            "mae": total_mae / total_samples if total_samples > 0 else 0,
-            "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item() if total_samples > 0 else 0,
+            **avg_metrics,
         }
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
@@ -188,25 +135,15 @@ class LeWMTrainer(BaseTrainer):
         total_loss_cls = 0
         total_loss_sigreg = 0
         total_loss_recon = 0
-
-        # Task-specific metrics
-        total_precision = 0
-        total_recall = 0
-        total_f1 = 0
-        total_mae = 0
-        total_rmse = 0
+        
+        # Accumulators for batch-wise metric calculation
         total_samples = 0
-
-        # Per-class metrics (for presence task)
-        class_tp = torch.zeros(4)
-        class_fp = torch.zeros(4)
-        class_fn = torch.zeros(4)
-
+        batch_metrics_sum = {}
+        
         last_recon = None
         last_target = None
-
-        # Get task once at the beginning
-        task = getattr(self.model, 'task', 'presence')
+        
+        task = self.task
 
         with torch.no_grad():
             for vis, ac, labels in loader:
@@ -214,7 +151,6 @@ class LeWMTrainer(BaseTrainer):
 
                 pred_emb, goal_emb, species_logits, recon_img = self.model(ac)
 
-                # Compute reconstruction target (denormalize visual image)
                 if self.model.use_decoder:
                     inv_normalize = transforms.Normalize(
                         mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
@@ -238,84 +174,52 @@ class LeWMTrainer(BaseTrainer):
                 total_loss_sigreg += sigreg_loss.item()
                 total_loss_recon += recon_loss.item()
 
-                # Compute task-specific metrics
-                if task == "counting":
-                    # Counting: MAE, RMSE on original scale
-                    pred_counts = torch.tanh(species_logits / 5.0) * 30.0
-                    pred_counts = pred_counts.clamp(min=0)
-                    labels_counts = labels.clamp(min=0)
-                    
-                    mae = F.l1_loss(pred_counts, labels_counts, reduction='sum')
-                    mse = F.mse_loss(pred_counts, labels_counts, reduction='sum')
-                    total_mae += mae.item()
-                    total_rmse += mse.item()
-                else:
-                    # Presence/absence: precision, recall, F1
-                    probs = torch.sigmoid(species_logits)
-                    preds = (probs > 0.5).float()
-
-                    for i in range(labels.shape[0]):
-                        tp = preds[i] * labels[i]
-                        fp = preds[i] * (1 - labels[i])
-                        fn = (1 - preds[i]) * labels[i]
-
-                        for c in range(4):
-                            class_tp[c] += tp[c].item()
-                            class_fp[c] += fp[c].item()
-                            class_fn[c] += fn[c].item()
-
-                        tp_sum = tp.sum().item()
-                        fp_sum = fp.sum().item()
-                        fn_sum = fn.sum().item()
-
-                        precision = tp_sum / (tp_sum + fp_sum + 1e-8)
-                        recall = tp_sum / (tp_sum + fn_sum + 1e-8)
-                        f1 = 2 * precision * recall / (precision + recall + 1e-8)
-
-                        total_precision += precision
-                        total_recall += recall
-                        total_f1 += f1
-
-                total_samples += labels.shape[0]
+                # Calculate task-specific metrics using unified utility
+                batch_metrics = get_task_metrics(task, species_logits, labels)
+                
+                # Accumulate metrics (weighted by batch size)
+                batch_size = len(labels)
+                for key, value in batch_metrics.items():
+                    if key not in batch_metrics_sum:
+                        batch_metrics_sum[key] = 0.0
+                    batch_metrics_sum[key] += value * batch_size
+                
+                total_samples += batch_size
 
                 # Save last reconstruction for logging
                 if recon_img is not None:
                     last_recon = recon_img[0].cpu().clamp(0, 1)
-                    last_target = target_img[0].cpu().clamp(0, 1) if target_img is not None else None
+                    if target_img is not None:
+                        last_target = target_img[0].cpu().clamp(0, 1)
 
-        # Per-class F1 (only for presence task)
-        class_precision = class_tp / (class_tp + class_fp + 1e-8)
-        class_recall = class_tp / (class_tp + class_fn + 1e-8)
-        class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+        # Average metrics
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in batch_metrics_sum.items()
+        }
 
-        return {
+        result = {
             "loss": total_loss / len(loader),
             "loss_pred": total_loss_pred / len(loader),
             "loss_cls": total_loss_cls / len(loader),
             "loss_sigreg": total_loss_sigreg / len(loader),
             "loss_recon": total_loss_recon / len(loader),
-            "precision": total_precision / total_samples,
-            "recall": total_recall / total_samples,
-            "f1": total_f1 / total_samples,
-            "mae": total_mae / total_samples if total_samples > 0 else 0,
-            "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item() if total_samples > 0 else 0,
-            "f1_kingfish": class_f1[0].item(),
-            "f1_snapper": class_f1[1].item(),
-            "f1_cod": class_f1[2].item(),
-            "f1_empty": class_f1[3].item(),
-            "last_recon": last_recon,
-            "last_target": last_target,
+            **avg_metrics,
         }
+        
+        # Add reconstructions for logging
+        if last_recon is not None:
+            result["last_recon"] = last_recon
+        if last_target is not None:
+            result["last_target"] = last_target
+        
+        return result
 
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Use task-appropriate metric for model selection."""
-        # For counting task, use negative MAE (higher is better)
-        if "mae" in val_metrics:
-            return -val_metrics["mae"]
-        # For presence task, use F1 (higher is better)
-        if val_metrics.get("f1", 0) > 0:
-            return val_metrics["f1"]
-        return val_metrics.get("acc", 0)
+        if self.task == "counting":
+            return -val_metrics.get("mae", 0)
+        return val_metrics.get("f1", 0)
 
 
 def get_trainer(config: TrainingConfig, device: torch.device) -> BaseTrainer:
