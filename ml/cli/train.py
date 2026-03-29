@@ -169,6 +169,7 @@ def main() -> None:
     decoder_parser.add_argument("--epochs", type=int, default=50)
     decoder_parser.add_argument("--lr", type=float, default=1e-3)
     decoder_parser.add_argument("--batch-size", type=int, default=16)
+    # Decoder is for image reconstruction only, no task flag
     add_common_args(decoder_parser)
 
     # Fusion
@@ -177,6 +178,7 @@ def main() -> None:
     fusion_parser.add_argument("--batch-size", type=int, default=32)
     fusion_parser.add_argument("--lr", type=float, default=1e-4)
     fusion_parser.add_argument("--dropout-prob", type=float, default=0.5)
+    fusion_parser.add_argument("--task", type=str, default="presence", choices=["presence", "counting"])
     add_common_args(fusion_parser)
 
     # Translator
@@ -186,6 +188,7 @@ def main() -> None:
     translator_parser.add_argument("--lr", type=float, default=1e-4)
     translator_parser.add_argument("--d-model", type=int, default=256)
     translator_parser.add_argument("--patch-size", type=int, default=16)
+    translator_parser.add_argument("--task", type=str, default="presence", choices=["presence", "counting"])
     add_common_args(translator_parser)
 
     # MAE
@@ -194,6 +197,7 @@ def main() -> None:
     mae_parser.add_argument("--batch-size", type=int, default=64)
     mae_parser.add_argument("--lr", type=float, default=1e-3)
     mae_parser.add_argument("--mask-ratio", type=float, default=0.75)
+    # MAE is self-supervised (reconstruction), no task flag needed
     add_common_args(mae_parser)
 
     args = parser.parse_args()
@@ -217,19 +221,19 @@ def main() -> None:
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
             batch_size=args.batch_size, learning_rate=args.lr
         )
-        job_type = "decoder-train"
+        job_type = "decoder-reconstruction"
     elif args.command == "fusion":
         config = FusionConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
             batch_size=args.batch_size, learning_rate=args.lr, dropout_prob=args.dropout_prob
         )
-        job_type = "fusion-train"
+        job_type = f"fusion-{args.task}"
     elif args.command == "translator":
         config = TranslatorConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
             batch_size=args.batch_size, learning_rate=args.lr, d_model=args.d_model, patch_size=args.patch_size
         )
-        job_type = "translator-train"
+        job_type = f"translator-{args.task}"
     elif args.command == "mae":
         config = MAEConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,

@@ -121,7 +121,13 @@ class FusionTrainer(BaseTrainer):
         visual_model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V1)
         self.visual_backbone = nn.Sequential(*list(visual_model.children())[:-1]).to(self.device)
         self.visual_backbone.eval()
-        self.criterion = nn.CrossEntropyLoss()
+        
+        # Task-specific loss and output handling
+        self.task = getattr(config, 'task', 'presence')
+        if self.task == "counting":
+            self.criterion = nn.MSELoss()  # Regression for counting
+        else:
+            self.criterion = nn.BCEWithLogitsLoss()  # Multi-label presence/absence
 
     def build_model(self) -> nn.Module:
         from models.fusion import MaskedAttentionFusion
@@ -129,34 +135,53 @@ class FusionTrainer(BaseTrainer):
 
     def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
         self.model.train()
+        total_loss = 0
         train_correct = 0
         train_total = 0
-        total_loss = 0
-        
+
         pbar = tqdm(loader, desc="Training Fusion")
         for vis, ac, labels in pbar:
             vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
-            
+
             with torch.no_grad():
                 vis_feats = self.visual_backbone(vis).squeeze(-1).squeeze(-1)
-            
+
             # Modality dropout
             dropout_prob = getattr(self.config, 'dropout_prob', 0.5)
             mask = (torch.rand(vis_feats.size(0), 1, device=self.device) > dropout_prob).float()
             vis_feats = vis_feats * mask
-            
+
             self.optimizer.zero_grad()
             logits = self.model(vis_feats, ac)
-            loss = self.criterion(logits, labels)
+            
+            if self.task == "counting":
+                # Counting: regression with MSE
+                loss = self.criterion(logits, labels)
+            else:
+                # Presence: multi-label with BCE
+                loss = self.criterion(logits, labels)
+            
             loss.backward()
             self.optimizer.step()
-            
+
             total_loss += loss.item()
-            preds = torch.argmax(logits, dim=1)
-            train_correct += (preds == labels).sum().item()
-            train_total += labels.size(0)
-            pbar.set_postfix({"acc": f"{100*train_correct/train_total:.1f}%"})
             
+            # Calculate accuracy based on task
+            if self.task == "counting":
+                # For counting: accuracy = 1 - MAE / max_count
+                preds = torch.round(logits.clamp(0, 30))
+                exact_matches = (preds == labels).sum().item()
+                train_correct += exact_matches
+            else:
+                # For presence: threshold at 0.5 after sigmoid
+                probs = torch.sigmoid(logits)
+                preds = (probs > 0.5).float()
+                matches = (preds == labels).all(dim=1).sum().item()
+                train_correct += matches
+            
+            train_total += labels.size(0)
+            pbar.set_postfix({"loss": f"{loss.item():.4f}", "acc": f"{100*train_correct/train_total:.1f}%"})
+
         return {"loss": total_loss / len(loader), "acc": train_correct / train_total}
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
@@ -164,26 +189,42 @@ class FusionTrainer(BaseTrainer):
         val_fusion_correct = 0
         val_acoustic_correct = 0
         val_total = 0
-        
+        val_loss = 0
+
         with torch.no_grad():
             for vis, ac, labels in loader:
                 vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
                 vis_feats = self.visual_backbone(vis).squeeze(-1).squeeze(-1)
-                
+
                 # Fusion
                 logits_fusion = self.model(vis_feats, ac, mask_ratio=0.0)
-                preds_fusion = torch.argmax(logits_fusion, dim=1)
-                val_fusion_correct += (preds_fusion == labels).sum().item()
+                loss = self.criterion(logits_fusion, labels)
+                val_loss += loss.item()
                 
+                if self.task == "counting":
+                    preds_fusion = torch.round(logits_fusion.clamp(0, 30))
+                    val_fusion_correct += (preds_fusion == labels).sum().item()
+                else:
+                    probs = torch.sigmoid(logits_fusion)
+                    preds_fusion = (probs > 0.5).float()
+                    val_fusion_correct += (preds_fusion == labels).all(dim=1).sum().item()
+
                 # Acoustic only
                 zero_vis = torch.zeros_like(vis_feats)
                 logits_acoustic = self.model(zero_vis, ac, mask_ratio=0.0)
-                preds_acoustic = torch.argmax(logits_acoustic, dim=1)
-                val_acoustic_correct += (preds_acoustic == labels).sum().item()
                 
+                if self.task == "counting":
+                    preds_acoustic = torch.round(logits_acoustic.clamp(0, 30))
+                    val_acoustic_correct += (preds_acoustic == labels).sum().item()
+                else:
+                    probs = torch.sigmoid(logits_acoustic)
+                    preds_acoustic = (probs > 0.5).float()
+                    val_acoustic_correct += (preds_acoustic == labels).all(dim=1).sum().item()
+
                 val_total += labels.size(0)
-        
+
         return {
+            "loss": val_loss / len(loader),
             "acc": val_fusion_correct / val_total,
             "acoustic_acc": val_acoustic_correct / val_total
         }
@@ -198,7 +239,14 @@ class TranslatorTrainer(BaseTrainer):
     def __init__(self, config: Any, device: torch.device):
         super().__init__(config, device)
         self.recon_loss_fn = nn.MSELoss()
-        self.cls_loss_fn = nn.CrossEntropyLoss()
+        
+        # Task-specific classification loss
+        self.task = getattr(config, 'task', 'presence')
+        if self.task == "counting":
+            self.cls_loss_fn = nn.MSELoss()  # Regression for counting
+        else:
+            self.cls_loss_fn = nn.BCEWithLogitsLoss()  # Multi-label presence/absence
+        
         self.inv_normalize = transforms.Normalize(
             mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
             std=[1/0.229, 1/0.224, 1/0.225],
@@ -207,7 +255,7 @@ class TranslatorTrainer(BaseTrainer):
     def build_model(self) -> nn.Module:
         from models.transformer_translator import AcousticToImageTransformer
         return AcousticToImageTransformer(
-            d_model=getattr(self.config, 'd_model', 256), 
+            d_model=getattr(self.config, 'd_model', 256),
             patch_size=getattr(self.config, 'patch_size', 16),
         ).to(self.device)
 
@@ -217,30 +265,37 @@ class TranslatorTrainer(BaseTrainer):
         train_cls_loss = 0
         train_correct = 0
         train_total = 0
-        
+
         pbar = tqdm(loader, desc="Training Translator")
         for vis, ac, labels in pbar:
             vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
-            
+
             self.optimizer.zero_grad()
             gen_img, species_logits = self.model(ac)
-            
+
             vis_01 = torch.stack([self.inv_normalize(v) for v in vis])
             recon_loss = self.recon_loss_fn(gen_img, vis_01)
             cls_loss = self.cls_loss_fn(species_logits, labels)
-            
+
             loss = 10.0 * recon_loss + cls_loss
             loss.backward()
             self.optimizer.step()
-            
+
             train_recon_loss += recon_loss.item()
             train_cls_loss += cls_loss.item()
+
+            # Calculate accuracy based on task
+            if self.task == "counting":
+                preds = torch.round(species_logits.clamp(0, 30))
+                train_correct += (preds == labels).sum().item()
+            else:
+                probs = torch.sigmoid(species_logits)
+                preds = (probs > 0.5).float()
+                train_correct += (preds == labels).all(dim=1).sum().item()
             
-            preds = torch.argmax(species_logits, dim=1)
-            train_correct += (preds == labels).sum().item()
             train_total += labels.size(0)
             pbar.set_postfix({"recon": f"{recon_loss.item():.4f}", "cls": f"{cls_loss.item():.3f}"})
-            
+
         return {
             "loss": (train_recon_loss + train_cls_loss) / len(loader),
             "recon_loss": train_recon_loss / len(loader),
@@ -254,23 +309,30 @@ class TranslatorTrainer(BaseTrainer):
         val_cls_loss = 0
         val_correct = 0
         val_total = 0
-        
+
         with torch.no_grad():
             for vis, ac, labels in loader:
                 vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
                 gen_img, species_logits = self.model(ac)
-                
+
                 vis_01 = torch.stack([self.inv_normalize(v) for v in vis])
                 recon_loss = self.recon_loss_fn(gen_img, vis_01)
                 cls_loss = self.cls_loss_fn(species_logits, labels)
-                
+
                 val_recon_loss += recon_loss.item()
                 val_cls_loss += cls_loss.item()
+
+                # Calculate accuracy based on task
+                if self.task == "counting":
+                    preds = torch.round(species_logits.clamp(0, 30))
+                    val_correct += (preds == labels).sum().item()
+                else:
+                    probs = torch.sigmoid(species_logits)
+                    preds = (probs > 0.5).float()
+                    val_correct += (preds == labels).all(dim=1).sum().item()
                 
-                preds = torch.argmax(species_logits, dim=1)
-                val_correct += (preds == labels).sum().item()
                 val_total += labels.size(0)
-        
+
         return {
             "loss": (val_recon_loss + val_cls_loss) / len(loader),
             "acc": val_correct / val_total,

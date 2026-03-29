@@ -158,16 +158,24 @@ enum Difficulty {
     Extreme,  // NEW: Depth randomization
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+enum Task {
+    Presence,    // Presence/absence detection
+    Counting,    // Fish counting
+}
+
 struct HeadlessSim {
     boids: Vec<Boid>,
     fish_mesh: Mesh,
     difficulty: Difficulty,
+    #[allow(dead_code)]  // Task is used for metadata labeling, not simulation
+    task: Task,
     species_in_beam: std::collections::HashSet<String>,
     species_counts: std::collections::HashMap<String, u32>,
 }
 
 impl HeadlessSim {
-    fn new(dominant_species: Species, seed: u64, difficulty: Difficulty) -> Self {
+    fn new(dominant_species: Species, seed: u64, difficulty: Difficulty, task: Task) -> Self {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut boids = Vec::with_capacity(FISH_COUNT);
         let fish_mesh = Mesh::load();
@@ -189,7 +197,7 @@ impl HeadlessSim {
             if species == Species::Empty { continue; }
 
             let school_id = school_idx as u32;
-            
+
             // Heading depends on difficulty
             let base_heading = match difficulty {
                 Difficulty::Easy => {
@@ -203,26 +211,26 @@ impl HeadlessSim {
                     Vec3::new(angle.cos(), 0.0, angle.sin())
                 }
             };
-            
+
             for _ in 0..fish_per_school {
                 let (min_y, max_y) = species.preferred_depth_range();
 
                 // Add some variety to depth range per school
                 let depth_offset = rng.gen_range(-0.5..0.5);
-                
+
                 // Extreme mode: randomize depth across full water column
                 let actual_y = if matches!(difficulty, Difficulty::Extreme) {
                     rng.gen_range(0.5..TANK_SIZE.y - 0.5) - TANK_SIZE.y / 2.0
                 } else {
                     rng.gen_range(min_y..max_y) + depth_offset - TANK_SIZE.y / 2.0
                 };
-                
+
                 let pos = Vec3::new(
                     rng.gen_range(-TANK_SIZE.x / 2.0..TANK_SIZE.x / 2.0),
                     actual_y,
                     rng.gen_range(-TANK_SIZE.z / 2.0..TANK_SIZE.z / 2.0),
                 );
-                
+
                 // Add some speed variety (+/- 10%)
                 let speed_mult = rng.gen_range(0.9..1.1);
                 let speed = species.speed() * speed_mult;
@@ -241,7 +249,7 @@ impl HeadlessSim {
             }
         }
 
-        Self { boids, fish_mesh, difficulty, species_in_beam: std::collections::HashSet::new(), species_counts: std::collections::HashMap::new() }
+        Self { boids, fish_mesh, difficulty, task, species_in_beam: std::collections::HashSet::new(), species_counts: std::collections::HashMap::new() }
     }
 
     fn step(&mut self, dt: f32, t: f32) {
@@ -500,6 +508,7 @@ fn main() {
     let mut output_dir = "dataset/easy".to_string();
     let mut samples_per_species = 333;
     let mut difficulty = Difficulty::Easy;
+    let mut task = Task::Presence;  // Default to presence detection
     let mut show_help = false;
 
     let mut i = 1;
@@ -508,9 +517,9 @@ fn main() {
             "--help" | "-h" => { show_help = true; }
             "--output" | "-o" => { i += 1; if i < args.len() { output_dir = args[i].clone(); } }
             "--samples" | "-n" => { i += 1; if i < args.len() { samples_per_species = args[i].parse().unwrap_or(333); } }
-            "--difficulty" | "-d" => { 
-                i += 1; 
-                if i < args.len() { 
+            "--difficulty" | "-d" => {
+                i += 1;
+                if i < args.len() {
                     difficulty = match args[i].to_lowercase().as_str() {
                         "easy" => Difficulty::Easy,
                         "medium" => Difficulty::Medium,
@@ -518,7 +527,17 @@ fn main() {
                         "extreme" => Difficulty::Extreme,
                         _ => Difficulty::Easy,
                     };
-                } 
+                }
+            }
+            "--task" | "-t" => {
+                i += 1;
+                if i < args.len() {
+                    task = match args[i].to_lowercase().as_str() {
+                        "presence" => Task::Presence,
+                        "counting" => Task::Counting,
+                        _ => Task::Presence,
+                    };
+                }
             }
             "--extreme" => {
                 difficulty = Difficulty::Extreme;
@@ -539,6 +558,7 @@ fn main() {
         println!("    -o, --output <DIR>            Output directory (default: dataset/easy)");
         println!("    -n, --samples <N>             Samples per species (default: 333)");
         println!("    -d, --difficulty <LEVEL>      Difficulty level: easy, medium, hard, extreme (default: easy)");
+        println!("    -t, --task <TASK>             ML task type: presence, counting (default: presence)");
         println!();
         println!("DIFFICULTY LEVELS:");
         println!("    easy      - All fish swim east in parallel, no heading changes");
@@ -546,12 +566,16 @@ fn main() {
         println!("    hard      - Full flocking behavior, heading changes every ~30s");
         println!("    extreme   - DEPTH RANDOMIZATION + chaotic swimming (breaks depth shortcuts!)");
         println!();
+        println!("TASK TYPES:");
+        println!("    presence  - Presence/absence detection (multi-label classification)");
+        println!("    counting  - Fish counting (regression to count individuals per species)");
+        println!();
         println!("EXAMPLES:");
-        println!("    # Generate easy dataset (1000 samples per species)");
+        println!("    # Generate easy dataset for presence detection (default)");
         println!("    cargo run --bin generate_dataset -- -o dataset/easy -n 1000");
         println!();
-        println!("    # Generate medium dataset");
-        println!("    cargo run --bin generate_dataset -- -o dataset/medium -n 1000 -d medium");
+        println!("    # Generate medium dataset for counting task");
+        println!("    cargo run --bin generate_dataset -- -o dataset/medium -n 1000 -d medium -t counting");
         println!();
         println!("    # Generate hard dataset");
         println!("    cargo run --bin generate_dataset -- -o dataset/hard -n 1000 -d hard");
@@ -568,6 +592,10 @@ fn main() {
         Difficulty::Hard => "Full flocking, heading changes every ~30s",
         Difficulty::Extreme => "DEPTH RANDOMIZATION + chaotic swimming!",
     });
+    println!("   Task: {:?} ({})", task, match task {
+        Task::Presence => "Presence/absence detection",
+        Task::Counting => "Fish counting",
+    });
     println!("   Output: {}", output_dir);
     println!("   Samples per species: {}", samples_per_species);
     fs::create_dir_all(&output_dir).unwrap();
@@ -579,8 +607,8 @@ fn main() {
     for &species in &species_list {
         let n = if species == Species::Empty { samples_per_species / 2 } else { samples_per_species };
         println!("Generating {} frames for {}...", n, species.name());
-        
-        let mut sim = HeadlessSim::new(species, master_rng.gen(), difficulty);
+
+        let mut sim = HeadlessSim::new(species, master_rng.gen(), difficulty, task);
         
         // Initial warm up (only once per species)
         let dt = 1.0 / 60.0;
