@@ -95,7 +95,12 @@ class LeWMTrainer(BaseTrainer):
             total_loss_recon += recon_loss.item()
 
             # Calculate task-specific metrics using unified utility
-            batch_metrics = get_task_metrics(task, species_logits, labels)
+            # LeWM uses tanh scaling (part of model architecture)
+            if self.task == "counting":
+                scaled_logits = torch.tanh(species_logits / 5.0) * 30.0
+                batch_metrics = get_task_metrics(self.task, scaled_logits, labels)
+            else:
+                batch_metrics = get_task_metrics(self.task, species_logits, labels)
             
             # Accumulate metrics (weighted by batch size)
             batch_size = len(labels)
@@ -175,7 +180,12 @@ class LeWMTrainer(BaseTrainer):
                 total_loss_recon += recon_loss.item()
 
                 # Calculate task-specific metrics using unified utility
-                batch_metrics = get_task_metrics(task, species_logits, labels)
+                # LeWM uses tanh scaling (part of model architecture)
+                if self.task == "counting":
+                    scaled_logits = torch.tanh(species_logits / 5.0) * 30.0
+                    batch_metrics = get_task_metrics(self.task, scaled_logits, labels)
+                else:
+                    batch_metrics = get_task_metrics(self.task, species_logits, labels)
                 
                 # Accumulate metrics (weighted by batch size)
                 batch_size = len(labels)

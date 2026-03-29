@@ -211,19 +211,9 @@ def get_task_metrics(
     """
     if task == "counting":
         clamp_range = kwargs.get("clamp_range", (0, 30))
-        scale_method = kwargs.get("scale_method", "tanh")  # Default to tanh scaling
-        scale_factor = kwargs.get("scale_factor", 5.0)
-        max_count = kwargs.get("max_count", 30.0)
-
-        # Apply tanh scaling to convert logits to counts [0, max_count]
-        # This matches the original LeWM implementation
-        if scale_method == "tanh":
-            # Tanh maps to [-1, 1], scale to [-max, max], then clamp to [0, max]
-            scaled_logits = torch.tanh(logits / scale_factor) * max_count
-            scaled_logits = scaled_logits.clamp(min=0, max=max_count)
-            return calculate_counting_metrics(scaled_logits, targets, clamp_range, scale_method="clamp")
-        else:
-            return calculate_counting_metrics(logits, targets, clamp_range, scale_method="clamp")
+        # Don't apply any scaling - use raw model outputs for fair comparison
+        # All models are evaluated the same way
+        return calculate_counting_metrics(logits, targets, clamp_range, scale_method="clamp")
 
     elif task == "presence":
         threshold = kwargs.get("threshold", 0.5)
