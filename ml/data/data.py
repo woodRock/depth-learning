@@ -386,10 +386,11 @@ def create_data_loaders(
     n_chunks: int = 10,
     num_workers: int = 4,
     seed: int = 42,
+    task: str = "presence",  # "presence" or "counting"
 ) -> tuple:
     """Create train and validation data loaders with stratified splitting."""
     # 1. Create one full dataset without balancing to get consistent indices
-    full_dataset = FishDataset(dataset_path, transform=transform, mode="val", seed=seed)
+    full_dataset = FishDataset(dataset_path, transform=transform, mode="val", seed=seed, task=task)
     
     if len(full_dataset) < batch_size:
         raise ValueError(f"Not enough data. Found {len(full_dataset)} samples.")
@@ -402,7 +403,7 @@ def create_data_loaders(
     # 3. Create training dataset (balanced)
     # Note: We can't easily balance AFTER splitting without changing indices.
     # However, if we balance the WHOLE dataset first (deterministically), it works.
-    balanced_dataset = FishDataset(dataset_path, transform=transform, mode="train", seed=seed)
+    balanced_dataset = FishDataset(dataset_path, transform=transform, mode="train", seed=seed, task=task)
     
     # Now we need to split the BALANCED dataset
     train_indices, val_indices = create_stratified_split(balanced_dataset)
@@ -420,11 +421,11 @@ def create_data_loaders(
     # But FishDataset.mode is set for the whole balanced_dataset.
     # We can create a separate dataset for validation with the same balanced files.
     
-    val_ds_base = FishDataset(dataset_path, transform=transform, mode="val", seed=seed)
+    val_ds_base = FishDataset(dataset_path, transform=transform, mode="val", seed=seed, task=task)
     val_ds_base.visual_files = balanced_dataset.visual_files # COPY the balanced file list!
     val_ds = Subset(val_ds_base, val_indices)
-    
+
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=num_workers)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=num_workers)
-    
+
     return train_loader, val_loader

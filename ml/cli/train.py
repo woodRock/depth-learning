@@ -105,10 +105,11 @@ def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
         val_loader = DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
     else:
         train_loader, val_loader = create_data_loaders(
-            dataset_path, 
-            transform=transform, 
+            dataset_path,
+            transform=transform,
             batch_size=config.batch_size,
-            seed=getattr(args, 'seed', 42)
+            seed=getattr(args, 'seed', 42),
+            task=task
         )
 
     # Get trainer and setup optimizer
