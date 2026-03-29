@@ -119,14 +119,14 @@ class BaseTrainer(ABC):
                 self._record_acoustic_only_results(best_metrics)
 
     def _record_final_results(self, metrics: Dict[str, Any]) -> None:
-        """Append the best metrics to results.json (multi-modal for JEPA)."""
+        """Append the best metrics to results.json."""
         results_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
         os.makedirs(results_dir, exist_ok=True)
         results_path = os.path.join(results_dir, "results.json")
 
         # Determine task type from metrics keys
         is_counting = "mae" in metrics["train"]
-        
+
         # Prepare new entry
         architecture = getattr(self.config, 'architecture', 'jepa')
         if architecture == "lewm_plus":
@@ -157,35 +157,48 @@ class BaseTrainer(ABC):
             "val": {},
             "test": None  # To be filled by simulation evaluation
         }
-        
+
         if is_counting:
-            # Counting task: save MAE/RMSE
+            # Counting task: save MAE/RMSE (unified format)
             entry["train"] = {
                 "loss": metrics["train"].get("loss", 0),
                 "mae": metrics["train"].get("mae", 0),
                 "rmse": metrics["train"].get("rmse", 0),
+                "kingfish_mae": metrics["train"].get("kingfish_mae", 0),
+                "snapper_mae": metrics["train"].get("snapper_mae", 0),
+                "cod_mae": metrics["train"].get("cod_mae", 0),
+                "empty_mae": metrics["train"].get("empty_mae", 0),
             }
             entry["val"] = {
                 "loss": metrics["val"].get("loss", 0),
                 "mae": metrics["val"].get("mae", 0),
                 "rmse": metrics["val"].get("rmse", 0),
-                "sim": metrics["val"].get("sim", 0),
+                "kingfish_mae": metrics["val"].get("kingfish_mae", 0),
+                "snapper_mae": metrics["val"].get("snapper_mae", 0),
+                "cod_mae": metrics["val"].get("cod_mae", 0),
+                "empty_mae": metrics["val"].get("empty_mae", 0),
             }
         else:
-            # Presence/single_label task: save F1 scores
+            # Presence task: save F1 scores (unified format)
             entry["train"] = {
-                "kingfish_f1": metrics["train"].get("f1_kingfish", 0),
-                "snapper_f1": metrics["train"].get("f1_snapper", 0),
-                "cod_f1": metrics["train"].get("f1_cod", 0),
-                "empty_f1": metrics["train"].get("f1_empty", 0),
-                "avg_f1": metrics["train"].get("f1", 0),
+                "loss": metrics["train"].get("loss", 0),
+                "f1": metrics["train"].get("f1", 0),
+                "precision": metrics["train"].get("precision", 0),
+                "recall": metrics["train"].get("recall", 0),
+                "kingfish_f1": metrics["train"].get("kingfish_f1", 0),
+                "snapper_f1": metrics["train"].get("snapper_f1", 0),
+                "cod_f1": metrics["train"].get("cod_f1", 0),
+                "empty_f1": metrics["train"].get("empty_f1", 0),
             }
             entry["val"] = {
-                "kingfish_f1": metrics["val"].get("f1_kingfish", 0),
-                "snapper_f1": metrics["val"].get("f1_snapper", 0),
-                "cod_f1": metrics["val"].get("f1_cod", 0),
-                "empty_f1": metrics["val"].get("f1_empty", 0),
-                "avg_f1": metrics["val"].get("f1", 0),
+                "loss": metrics["val"].get("loss", 0),
+                "f1": metrics["val"].get("f1", 0),
+                "precision": metrics["val"].get("precision", 0),
+                "recall": metrics["val"].get("recall", 0),
+                "kingfish_f1": metrics["val"].get("kingfish_f1", 0),
+                "snapper_f1": metrics["val"].get("snapper_f1", 0),
+                "cod_f1": metrics["val"].get("cod_f1", 0),
+                "empty_f1": metrics["val"].get("empty_f1", 0),
             }
 
         # Load existing results
@@ -422,11 +435,11 @@ class BaseTrainer(ABC):
         
         # Save model config with task information
         model_config = {
-            "model_type": self.config.model_type,
+            "model_type": getattr(self.config, 'model_type', 'default'),
             "config": vars(self.config)
         }
-        
-        # Add task information for LeWM
+
+        # Add task information for models that have it
         if hasattr(self.model, 'task'):
             model_config["task"] = self.model.task
         

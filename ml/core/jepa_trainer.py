@@ -17,13 +17,16 @@ import wandb
 from utils.config import TrainingConfig
 from data.data import create_visual_transform, AugmentationConfig
 from utils.logging import get_logger
+from utils.metrics import get_task_metrics, SPECIES_NAMES
 
 logger = get_logger(__name__)
 
 from .base import BaseTrainer
+
+
 class JEPATrainer(BaseTrainer):
     """Trainer for JEPA (Joint Embedding Predictive Architecture) models."""
-    
+
     def build_model(self) -> nn.Module:
         """Build JEPA model with specified acoustic encoder."""
         from models.acoustic import ConvEncoder, TransformerEncoder
@@ -63,24 +66,9 @@ class JEPATrainer(BaseTrainer):
         total_loss_jepa = 0
         total_loss_cls = 0
 
-        # Classification metrics
-        correct = 0
-        total = 0
-
-        # Presence task metrics
-        total_precision = 0
-        total_recall = 0
-        total_f1 = 0
-
-        # Counting task metrics
-        total_mae = 0
-        total_rmse = 0
+        # Accumulators for batch-wise metric calculation
         total_samples = 0
-
-        # Per-class F1 (for presence task)
-        class_tp = torch.zeros(4)
-        class_fp = torch.zeros(4)
-        class_fn = torch.zeros(4)
+        batch_metrics_sum = {}  # Sum of metrics across batches
 
         # Get task once at the beginning
         task = getattr(self.model, 'task', 'presence')
@@ -103,125 +91,62 @@ class JEPATrainer(BaseTrainer):
             total_loss_jepa += loss_jepa.item()
             total_loss_cls += loss_cls.item()
 
-            # Task-specific metrics (computed inside loop for all batches)
-            if task == "presence":
-                # Multi-label: precision, recall, F1
-                probs = torch.sigmoid(species_logits)
-                preds = (probs > 0.5).float()
+            # Calculate task-specific metrics using unified utility
+            batch_metrics = get_task_metrics(task, species_logits, labels)
+            
+            # Accumulate metrics (weighted by batch size)
+            batch_size = len(labels)
+            for key, value in batch_metrics.items():
+                if key not in batch_metrics_sum:
+                    batch_metrics_sum[key] = 0.0
+                batch_metrics_sum[key] += value * batch_size
+            
+            total_samples += batch_size
 
-                for i in range(labels.shape[0]):
-                    tp = preds[i] * labels[i]
-                    fp = preds[i] * (1 - labels[i])
-                    fn = (1 - preds[i]) * labels[i]
-
-                    for c in range(4):
-                        class_tp[c] += tp[c].item()
-                        class_fp[c] += fp[c].item()
-                        class_fn[c] += fn[c].item()
-
-                    tp_sum = tp.sum().item()
-                    fp_sum = fp.sum().item()
-                    fn_sum = fn.sum().item()
-
-                    precision = tp_sum / (tp_sum + fp_sum + 1e-8)
-                    recall = tp_sum / (tp_sum + fn_sum + 1e-8)
-                    f1 = 2 * precision * recall / (precision + recall + 1e-8)
-
-                    total_precision += precision
-                    total_recall += recall
-                    total_f1 += f1
-
-                total += labels.shape[0]
-
+            # Display metrics
+            if task == "counting":
                 pbar.set_postfix({
                     "loss": f"{loss.item():.3f}",
-                    "f1": f"{100*total_f1/total:.1f}%"
+                    "mae": f"{batch_metrics['mae']:.3f}",
                 })
-            elif task == "counting":
-                # Counting: MAE, RMSE
-                pred_counts = species_logits.clamp(min=0)
-                true_counts = labels.clamp(min=0)
-
-                mae = F.l1_loss(pred_counts, true_counts, reduction='sum')
-                mse = F.mse_loss(pred_counts, true_counts, reduction='sum')
-
-                total_mae += mae.item()
-                total_rmse += mse.item()
-                total_samples += labels.shape[0]
-
+            elif task == "presence":
                 pbar.set_postfix({
                     "loss": f"{loss.item():.3f}",
-                    "mae": f"{mae.item()/labels.shape[0]:.3f}",
+                    "f1": f"{batch_metrics['f1'] * 100:.1f}%",
                 })
             else:
-                # Single-label: accuracy
-                preds = torch.argmax(species_logits, dim=1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
+                pbar.set_postfix({
+                    "loss": f"{loss.item():.3f}",
+                    "acc": f"{batch_metrics.get('acc', 0) * 100:.1f}%",
+                })
 
-                pbar.set_postfix({"loss": f"{loss.item():.3f}", "acc": f"{100*correct/total:.1f}%"})
+        # Average metrics over all samples
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in batch_metrics_sum.items()
+        }
 
-        # Return metrics based on task
-        if task == "presence":
-            # Per-class F1
-            class_precision = class_tp / (class_tp + class_fp + 1e-8)
-            class_recall = class_tp / (class_tp + class_fn + 1e-8)
-            class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
+        # Build return dictionary
+        result = {
+            "loss": total_loss / len(loader),
+            "loss_jepa": total_loss_jepa / len(loader),
+            "loss_cls": total_loss_cls / len(loader),
+            **avg_metrics,
+        }
 
-            return {
-                "loss": total_loss / len(loader),
-                "loss_jepa": total_loss_jepa / len(loader),
-                "loss_cls": total_loss_cls / len(loader),
-                "precision": total_precision / total,
-                "recall": total_recall / total,
-                "f1": total_f1 / total,
-                "f1_kingfish": class_f1[0].item(),
-                "f1_snapper": class_f1[1].item(),
-                "f1_cod": class_f1[2].item(),
-                "f1_empty": class_f1[3].item(),
-            }
-        elif task == "counting":
-            return {
-                "loss": total_loss / len(loader),
-                "loss_jepa": total_loss_jepa / len(loader),
-                "loss_cls": total_loss_cls / len(loader),
-                "mae": total_mae / total_samples if total_samples > 0 else 0,
-                "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item() if total_samples > 0 else 0,
-            }
-        else:
-            return {
-                "loss": total_loss / len(loader),
-                "loss_jepa": total_loss_jepa / len(loader),
-                "loss_cls": total_loss_cls / len(loader),
-                "acc": correct / total if total > 0 else 0,
-            }
-    
+        return result
+
     def validate(self, loader: DataLoader) -> Dict[str, float]:
         """Validate JEPA model with task-specific metrics."""
         self.model.eval()
         total_loss = 0
         total_loss_jepa = 0
         total_loss_cls = 0
-
-        # Classification metrics
-        correct = 0
-        total = 0
         total_sim = 0
 
-        # Presence task metrics
-        total_precision = 0
-        total_recall = 0
-        total_f1 = 0
-
-        # Counting task metrics
-        total_mae = 0
-        total_rmse = 0
+        # Accumulators for batch-wise metric calculation
         total_samples = 0
-
-        # Per-class F1 (for presence task)
-        class_tp = torch.zeros(4)
-        class_fp = torch.zeros(4)
-        class_fn = torch.zeros(4)
+        batch_metrics_sum = {}
 
         # Get task once at the beginning
         task = getattr(self.model, 'task', 'presence')
@@ -242,89 +167,34 @@ class JEPATrainer(BaseTrainer):
                 sim = F.cosine_similarity(predicted_target, target_latent, dim=-1).mean()
                 total_sim += sim.item()
 
-                # Task-specific metrics
-                if task == "presence":
-                    # Multi-label: precision, recall, F1
-                    probs = torch.sigmoid(species_logits)
-                    preds = (probs > 0.5).float()
+                # Calculate task-specific metrics using unified utility
+                batch_metrics = get_task_metrics(task, species_logits, labels)
+                
+                # Accumulate metrics (weighted by batch size)
+                batch_size = len(labels)
+                for key, value in batch_metrics.items():
+                    if key not in batch_metrics_sum:
+                        batch_metrics_sum[key] = 0.0
+                    batch_metrics_sum[key] += value * batch_size
+                
+                total_samples += batch_size
 
-                    for i in range(labels.shape[0]):
-                        tp = preds[i] * labels[i]
-                        fp = preds[i] * (1 - labels[i])
-                        fn = (1 - preds[i]) * labels[i]
+        # Average metrics over all samples
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in batch_metrics_sum.items()
+        }
 
-                        for c in range(4):
-                            class_tp[c] += tp[c].item()
-                            class_fp[c] += fp[c].item()
-                            class_fn[c] += fn[c].item()
+        # Build return dictionary
+        result = {
+            "loss": total_loss / len(loader),
+            "loss_jepa": total_loss_jepa / len(loader),
+            "loss_cls": total_loss_cls / len(loader),
+            "sim": total_sim / len(loader),
+            **avg_metrics,
+        }
 
-                        tp_sum = tp.sum().item()
-                        fp_sum = fp.sum().item()
-                        fn_sum = fn.sum().item()
-
-                        precision = tp_sum / (tp_sum + fp_sum + 1e-8)
-                        recall = tp_sum / (tp_sum + fn_sum + 1e-8)
-                        f1 = 2 * precision * recall / (precision + recall + 1e-8)
-
-                        total_precision += precision
-                        total_recall += recall
-                        total_f1 += f1
-
-                    total += labels.shape[0]
-                elif task == "counting":
-                    # Counting: MAE, RMSE
-                    pred_counts = species_logits.clamp(min=0)
-                    true_counts = labels.clamp(min=0)
-                    
-                    mae = F.l1_loss(pred_counts, true_counts, reduction='sum')
-                    mse = F.mse_loss(pred_counts, true_counts, reduction='sum')
-                    
-                    total_mae += mae.item()
-                    total_rmse += mse.item()
-                    total_samples += labels.shape[0]
-                else:
-                    # Single-label: accuracy
-                    preds = torch.argmax(species_logits, dim=1)
-                    correct += (preds == labels).sum().item()
-                    total += labels.size(0)
-
-        # Return metrics based on task
-        if task == "presence":
-            # Per-class F1
-            class_precision = class_tp / (class_tp + class_fp + 1e-8)
-            class_recall = class_tp / (class_tp + class_fn + 1e-8)
-            class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
-
-            return {
-                "loss": total_loss / len(loader),
-                "loss_jepa": total_loss_jepa / len(loader),
-                "loss_cls": total_loss_cls / len(loader),
-                "sim": total_sim / len(loader),
-                "precision": total_precision / total,
-                "recall": total_recall / total,
-                "f1": total_f1 / total,
-                "f1_kingfish": class_f1[0].item(),
-                "f1_snapper": class_f1[1].item(),
-                "f1_cod": class_f1[2].item(),
-                "f1_empty": class_f1[3].item(),
-            }
-        elif task == "counting":
-            return {
-                "loss": total_loss / len(loader),
-                "loss_jepa": total_loss_jepa / len(loader),
-                "loss_cls": total_loss_cls / len(loader),
-                "sim": total_sim / len(loader),
-                "mae": total_mae / total_samples,
-                "rmse": torch.sqrt(torch.tensor(total_rmse / total_samples)).item(),
-            }
-        else:
-            return {
-                "loss": total_loss / len(loader),
-                "loss_jepa": total_loss_jepa / len(loader),
-                "loss_cls": total_loss_cls / len(loader),
-                "sim": total_sim / len(loader),
-                "acc": correct / total,
-            }
+        return result
 
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Use task-appropriate metric for model selection."""

@@ -225,13 +225,15 @@ def main() -> None:
     elif args.command == "fusion":
         config = FusionConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
-            batch_size=args.batch_size, learning_rate=args.lr, dropout_prob=args.dropout_prob
+            batch_size=args.batch_size, learning_rate=args.lr, dropout_prob=args.dropout_prob,
+            task=args.task
         )
         job_type = f"fusion-{args.task}"
     elif args.command == "translator":
         config = TranslatorConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
-            batch_size=args.batch_size, learning_rate=args.lr, d_model=args.d_model, patch_size=args.patch_size
+            batch_size=args.batch_size, learning_rate=args.lr, d_model=args.d_model,
+            patch_size=args.patch_size, task=args.task
         )
         job_type = f"translator-{args.task}"
     elif args.command == "mae":

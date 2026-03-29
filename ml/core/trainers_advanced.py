@@ -14,6 +14,7 @@ import wandb
 
 from .base import BaseTrainer
 from data import FishDataset, ImageLatentDataset
+from utils.metrics import get_task_metrics, SPECIES_NAMES
 
 
 class DecoderTrainer(BaseTrainer):
@@ -136,8 +137,8 @@ class FusionTrainer(BaseTrainer):
     def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
         self.model.train()
         total_loss = 0
-        train_correct = 0
-        train_total = 0
+        total_samples = 0
+        batch_metrics_sum = {}
 
         pbar = tqdm(loader, desc="Training Fusion")
         for vis, ac, labels in pbar:
@@ -153,43 +154,55 @@ class FusionTrainer(BaseTrainer):
 
             self.optimizer.zero_grad()
             logits = self.model(vis_feats, ac)
-            
+
             if self.task == "counting":
                 # Counting: regression with MSE
                 loss = self.criterion(logits, labels)
             else:
                 # Presence: multi-label with BCE
                 loss = self.criterion(logits, labels)
-            
+
             loss.backward()
             self.optimizer.step()
 
             total_loss += loss.item()
-            
-            # Calculate accuracy based on task
-            if self.task == "counting":
-                # For counting: accuracy = 1 - MAE / max_count
-                preds = torch.round(logits.clamp(0, 30))
-                exact_matches = (preds == labels).sum().item()
-                train_correct += exact_matches
-            else:
-                # For presence: threshold at 0.5 after sigmoid
-                probs = torch.sigmoid(logits)
-                preds = (probs > 0.5).float()
-                matches = (preds == labels).all(dim=1).sum().item()
-                train_correct += matches
-            
-            train_total += labels.size(0)
-            pbar.set_postfix({"loss": f"{loss.item():.4f}", "acc": f"{100*train_correct/train_total:.1f}%"})
 
-        return {"loss": total_loss / len(loader), "acc": train_correct / train_total}
+            # Calculate task-specific metrics using unified utility
+            batch_metrics = get_task_metrics(self.task, logits, labels)
+            
+            # Accumulate metrics (weighted by batch size)
+            batch_size = len(labels)
+            for key, value in batch_metrics.items():
+                if key not in batch_metrics_sum:
+                    batch_metrics_sum[key] = 0.0
+                batch_metrics_sum[key] += value * batch_size
+            
+            total_samples += batch_size
+            
+            # Display metrics
+            if self.task == "counting":
+                pbar.set_postfix({"loss": f"{loss.item():.4f}", "mae": f"{batch_metrics['mae']:.3f}"})
+            else:
+                pbar.set_postfix({"loss": f"{loss.item():.4f}", "f1": f"{batch_metrics['f1'] * 100:.1f}%"})
+
+        # Average metrics over all samples
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in batch_metrics_sum.items()
+        }
+
+        if self.task == "counting":
+            return {"loss": total_loss / len(loader), **avg_metrics}
+        else:
+            return {"loss": total_loss / len(loader), **avg_metrics}
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
         self.model.eval()
-        val_fusion_correct = 0
-        val_acoustic_correct = 0
-        val_total = 0
-        val_loss = 0
+        val_fusion_loss = 0
+        val_acoustic_loss = 0
+        total_samples = 0
+        fusion_metrics_sum = {}
+        acoustic_metrics_sum = {}
 
         with torch.no_grad():
             for vis, ac, labels in loader:
@@ -199,38 +212,56 @@ class FusionTrainer(BaseTrainer):
                 # Fusion
                 logits_fusion = self.model(vis_feats, ac, mask_ratio=0.0)
                 loss = self.criterion(logits_fusion, labels)
-                val_loss += loss.item()
-                
-                if self.task == "counting":
-                    preds_fusion = torch.round(logits_fusion.clamp(0, 30))
-                    val_fusion_correct += (preds_fusion == labels).sum().item()
-                else:
-                    probs = torch.sigmoid(logits_fusion)
-                    preds_fusion = (probs > 0.5).float()
-                    val_fusion_correct += (preds_fusion == labels).all(dim=1).sum().item()
+                val_fusion_loss += loss.item()
+
+                # Calculate fusion metrics
+                fusion_batch_metrics = get_task_metrics(self.task, logits_fusion, labels)
+                batch_size = len(labels)
+                for key, value in fusion_batch_metrics.items():
+                    if key not in fusion_metrics_sum:
+                        fusion_metrics_sum[key] = 0.0
+                    fusion_metrics_sum[key] += value * batch_size
 
                 # Acoustic only
                 zero_vis = torch.zeros_like(vis_feats)
                 logits_acoustic = self.model(zero_vis, ac, mask_ratio=0.0)
-                
-                if self.task == "counting":
-                    preds_acoustic = torch.round(logits_acoustic.clamp(0, 30))
-                    val_acoustic_correct += (preds_acoustic == labels).sum().item()
-                else:
-                    probs = torch.sigmoid(logits_acoustic)
-                    preds_acoustic = (probs > 0.5).float()
-                    val_acoustic_correct += (preds_acoustic == labels).all(dim=1).sum().item()
+                loss = self.criterion(logits_acoustic, labels)
+                val_acoustic_loss += loss.item()
 
-                val_total += labels.size(0)
+                # Calculate acoustic metrics
+                acoustic_batch_metrics = get_task_metrics(self.task, logits_acoustic, labels)
+                for key, value in acoustic_batch_metrics.items():
+                    if key not in acoustic_metrics_sum:
+                        acoustic_metrics_sum[key] = 0.0
+                    acoustic_metrics_sum[key] += value * batch_size
 
-        return {
-            "loss": val_loss / len(loader),
-            "acc": val_fusion_correct / val_total,
-            "acoustic_acc": val_acoustic_correct / val_total
+                total_samples += batch_size
+
+        # Average metrics
+        fusion_avg = {
+            f"{key}": value / total_samples if total_samples > 0 else 0.0
+            for key, value in fusion_metrics_sum.items()
+        }
+        acoustic_avg = {
+            f"acoustic_{key}": value / total_samples if total_samples > 0 else 0.0
+            for key, value in acoustic_metrics_sum.items()
         }
 
+        result = {
+            "loss": val_fusion_loss / len(loader),
+            "acoustic_loss": val_acoustic_loss / len(loader),
+            **fusion_avg,
+            **acoustic_avg,
+        }
+
+        return result
+
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
-        return val_metrics["acoustic_acc"]
+        # For counting task, lower MAE is better
+        if self.task == "counting":
+            return -val_metrics.get("acoustic_mae", 0)
+        # For presence task, higher F1 is better
+        return val_metrics.get("acoustic_f1", 0)
 
 
 class TranslatorTrainer(BaseTrainer):
@@ -263,8 +294,8 @@ class TranslatorTrainer(BaseTrainer):
         self.model.train()
         train_recon_loss = 0
         train_cls_loss = 0
-        train_correct = 0
-        train_total = 0
+        total_samples = 0
+        batch_metrics_sum = {}
 
         pbar = tqdm(loader, desc="Training Translator")
         for vis, ac, labels in pbar:
@@ -284,31 +315,43 @@ class TranslatorTrainer(BaseTrainer):
             train_recon_loss += recon_loss.item()
             train_cls_loss += cls_loss.item()
 
-            # Calculate accuracy based on task
-            if self.task == "counting":
-                preds = torch.round(species_logits.clamp(0, 30))
-                train_correct += (preds == labels).sum().item()
-            else:
-                probs = torch.sigmoid(species_logits)
-                preds = (probs > 0.5).float()
-                train_correct += (preds == labels).all(dim=1).sum().item()
+            # Calculate task-specific metrics using unified utility
+            batch_metrics = get_task_metrics(self.task, species_logits, labels)
             
-            train_total += labels.size(0)
-            pbar.set_postfix({"recon": f"{recon_loss.item():.4f}", "cls": f"{cls_loss.item():.3f}"})
+            # Accumulate metrics (weighted by batch size)
+            batch_size = len(labels)
+            for key, value in batch_metrics.items():
+                if key not in batch_metrics_sum:
+                    batch_metrics_sum[key] = 0.0
+                batch_metrics_sum[key] += value * batch_size
+            
+            total_samples += batch_size
+            
+            # Display metrics
+            if self.task == "counting":
+                pbar.set_postfix({"recon": f"{recon_loss.item():.4f}", "cls": f"{cls_loss.item():.3f}", "mae": f"{batch_metrics['mae']:.3f}"})
+            else:
+                pbar.set_postfix({"recon": f"{recon_loss.item():.4f}", "cls": f"{cls_loss.item():.3f}", "f1": f"{batch_metrics['f1'] * 100:.1f}%"})
+
+        # Average metrics
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in batch_metrics_sum.items()
+        }
 
         return {
             "loss": (train_recon_loss + train_cls_loss) / len(loader),
             "recon_loss": train_recon_loss / len(loader),
             "cls_loss": train_cls_loss / len(loader),
-            "acc": train_correct / train_total
+            **avg_metrics,
         }
 
     def validate(self, loader: DataLoader) -> Dict[str, float]:
         self.model.eval()
         val_recon_loss = 0
         val_cls_loss = 0
-        val_correct = 0
-        val_total = 0
+        total_samples = 0
+        batch_metrics_sum = {}
 
         with torch.no_grad():
             for vis, ac, labels in loader:
@@ -322,26 +365,39 @@ class TranslatorTrainer(BaseTrainer):
                 val_recon_loss += recon_loss.item()
                 val_cls_loss += cls_loss.item()
 
-                # Calculate accuracy based on task
-                if self.task == "counting":
-                    preds = torch.round(species_logits.clamp(0, 30))
-                    val_correct += (preds == labels).sum().item()
-                else:
-                    probs = torch.sigmoid(species_logits)
-                    preds = (probs > 0.5).float()
-                    val_correct += (preds == labels).all(dim=1).sum().item()
+                # Calculate task-specific metrics using unified utility
+                batch_metrics = get_task_metrics(self.task, species_logits, labels)
                 
-                val_total += labels.size(0)
+                # Accumulate metrics (weighted by batch size)
+                batch_size = len(labels)
+                for key, value in batch_metrics.items():
+                    if key not in batch_metrics_sum:
+                        batch_metrics_sum[key] = 0.0
+                    batch_metrics_sum[key] += value * batch_size
+                
+                total_samples += batch_size
+
+        # Average metrics
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in batch_metrics_sum.items()
+        }
 
         return {
             "loss": (val_recon_loss + val_cls_loss) / len(loader),
-            "acc": val_correct / val_total,
+            "recon_loss": val_recon_loss / len(loader),
+            "cls_loss": val_cls_loss / len(loader),
             "last_recon": gen_img[0].cpu().detach().clamp(0, 1),
-            "last_target": vis_01[0].cpu().detach().clamp(0, 1)
+            "last_target": vis_01[0].cpu().detach().clamp(0, 1),
+            **avg_metrics,
         }
 
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
-        return -val_metrics["loss"]
+        # For counting task, lower MAE is better
+        if self.task == "counting":
+            return -val_metrics.get("mae", 0)
+        # For presence task, higher F1 is better
+        return val_metrics.get("f1", 0)
 
 
 class MAETrainer(BaseTrainer):

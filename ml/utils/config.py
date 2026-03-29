@@ -92,13 +92,14 @@ class DecoderConfig:
 @dataclass
 class FusionConfig:
     """Configuration for fusion model training."""
-    
+
     epochs: int = 50
     batch_size: int = 32
     learning_rate: float = 1e-4
     dropout_prob: float = 0.5
     dataset: Literal["easy", "medium", "hard"] = "easy"
     with_aug: bool = False
+    task: str = "presence"  # "presence" or "counting"
     weights_dir: str = "weights"
     wandb_project: str = "depth-learning"
 
@@ -106,7 +107,7 @@ class FusionConfig:
 @dataclass
 class TranslatorConfig:
     """Configuration for acoustic-to-image translator training."""
-    
+
     epochs: int = 100
     batch_size: int = 16
     learning_rate: float = 1e-4
@@ -114,6 +115,7 @@ class TranslatorConfig:
     with_aug: bool = False
     d_model: int = 256
     patch_size: int = 16
+    task: str = "presence"  # "presence" or "counting"
     weights_dir: str = "weights"
     wandb_entity: str = "victoria-university-of-wellington"
     wandb_project: str = "depth-learning"
