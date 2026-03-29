@@ -17,23 +17,31 @@ NUM_CLASSES = 4
 def calculate_counting_metrics(
     predictions: torch.Tensor,
     targets: torch.Tensor,
-    clamp_range: Tuple[float, float] = (0, 30)
+    clamp_range: Tuple[float, float] = (0, 30),
+    scale_method: str = "tanh"  # "tanh" or "clamp"
 ) -> Dict[str, float]:
     """
     Calculate counting task metrics: MAE and RMSE.
-    
+
     Args:
         predictions: Model output logits (B, 4)
         targets: Ground truth counts (B, 4)
         clamp_range: Range to clamp predictions (min, max)
-    
+        scale_method: How to scale logits to counts ("tanh" or "clamp")
+
     Returns:
         Dictionary with overall and per-species metrics
     """
-    # Clamp predictions to valid range
-    pred_counts = predictions.clamp(min=clamp_range[0], max=clamp_range[1])
-    true_counts = targets.clamp(min=clamp_range[0], max=clamp_range[1])
+    # Scale predictions to valid range
+    if scale_method == "tanh":
+        # Tanh scaling: maps logits to [0, max_count]
+        pred_counts = torch.tanh(predictions / 5.0) * clamp_range[1]
+    else:
+        # Just clamp to valid range
+        pred_counts = predictions.clamp(min=clamp_range[0], max=clamp_range[1])
     
+    true_counts = targets.clamp(min=clamp_range[0], max=clamp_range[1])
+
     # Overall metrics
     mae = F.l1_loss(pred_counts, true_counts).item()
     mse = F.mse_loss(pred_counts, true_counts).item()
@@ -191,38 +199,39 @@ def get_task_metrics(
 ) -> Dict[str, float]:
     """
     Get appropriate metrics for the given task.
-    
+
     Args:
         task: Task type ("counting", "presence", "single_label")
         logits: Model output
         targets: Ground truth
         **kwargs: Additional arguments for specific metrics
-    
+
     Returns:
         Dictionary of metrics (only relevant for the specified task)
     """
     if task == "counting":
         clamp_range = kwargs.get("clamp_range", (0, 30))
-        transform_method = kwargs.get("transform_method", "clamp")
+        scale_method = kwargs.get("scale_method", "tanh")  # Default to tanh scaling
         scale_factor = kwargs.get("scale_factor", 5.0)
         max_count = kwargs.get("max_count", 30.0)
-        
-        # Apply transformation if specified
-        if transform_method != "clamp":
-            logits = apply_counting_transform(
-                logits, method=transform_method,
-                scale_factor=scale_factor, max_count=max_count
-            )
-        
-        return calculate_counting_metrics(logits, targets, clamp_range)
-    
+
+        # Apply tanh scaling to convert logits to counts [0, max_count]
+        # This matches the original LeWM implementation
+        if scale_method == "tanh":
+            # Tanh maps to [-1, 1], scale to [-max, max], then clamp to [0, max]
+            scaled_logits = torch.tanh(logits / scale_factor) * max_count
+            scaled_logits = scaled_logits.clamp(min=0, max=max_count)
+            return calculate_counting_metrics(scaled_logits, targets, clamp_range, scale_method="clamp")
+        else:
+            return calculate_counting_metrics(logits, targets, clamp_range, scale_method="clamp")
+
     elif task == "presence":
         threshold = kwargs.get("threshold", 0.5)
         return calculate_presence_metrics(logits, targets, threshold)
-    
+
     elif task == "single_label":
         return calculate_single_label_metrics(logits, targets)
-    
+
     else:
         raise ValueError(f"Unknown task: {task}")
 
