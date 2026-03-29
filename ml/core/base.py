@@ -51,6 +51,7 @@ class BaseTrainer(ABC):
         """Full training loop with early stopping."""
         best_score = 0.0
         best_metrics = None
+        best_multi_modal = None
         best_epoch = 0
         patience = getattr(self.config, 'early_stop_patience', 15)  # Stop if no improvement for N epochs
         min_delta = getattr(self.config, 'early_stop_min_delta', 0.001)  # Minimum improvement to count as progress
@@ -62,48 +63,57 @@ class BaseTrainer(ABC):
             # Training phase
             train_metrics = self.train_epoch(train_loader)
 
-            # Validation phase
+            # Validation phase - get multi-modal metrics (if model supports it)
             val_metrics = self.validate(val_loader)
-
-            # Logging
-            self._log_metrics(epoch, train_metrics, val_metrics)
             
-            # Log acoustic-only metrics for models that support it (JEPA, Fusion)
+            # Evaluate acoustic-only performance (PRIMARY METRICS)
+            acoustic_metrics = None
             if hasattr(self, '_evaluate_acoustic_only'):
                 acoustic_metrics = self._evaluate_acoustic_only(val_loader)
-                if acoustic_metrics:
-                    self._log_acoustic_metrics(epoch, acoustic_metrics)
-                    # Add to val_metrics for model selection if acoustic-only mode
-                    if getattr(self.config, 'acoustic_only', False):
-                        val_metrics.update(acoustic_metrics)
-
-            # Model saving and early stopping check
-            current_score = self._get_save_score(val_metrics)
+            
+            # Determine primary metrics (acoustic-only if available, otherwise multi-modal)
+            if acoustic_metrics:
+                # Model supports both - acoustic is primary, multi-modal is secondary
+                primary_metrics = acoustic_metrics
+                multi_modal_metrics = val_metrics
+            else:
+                # Acoustic-only model - use multi-modal as primary
+                primary_metrics = val_metrics
+                multi_modal_metrics = None
+            
+            # Log to wandb with unified naming
+            self._log_metrics(epoch, train_metrics, primary_metrics, multi_modal_metrics)
+            
+            # Model selection uses primary metrics (acoustic-only when available)
+            current_score = self._get_save_score(primary_metrics)
             
             # Check for perfect score FIRST (stop immediately)
             if current_score >= 0.9999:  # Effectively 1.0 with floating point tolerance
                 best_score = current_score
-                best_metrics = {"train": train_metrics, "val": val_metrics}
+                best_metrics = {"train": train_metrics, "val": primary_metrics}
+                best_multi_modal = {"train": train_metrics, "val": multi_modal_metrics} if multi_modal_metrics else None
                 best_epoch = epoch
                 self._save_model(epoch)
                 print(f"  Epoch {epoch+1}: PERFECT SCORE! Score={best_score:.4f}")
                 print(f"\n⏹ Perfect validation accuracy achieved! Stopping immediately.")
                 break
-            
+
             # Check for improvement
             improvement = current_score - best_score
-            
+
             if improvement > min_delta:
                 # Significant improvement
                 best_score = current_score
-                best_metrics = {"train": train_metrics, "val": val_metrics}
+                best_metrics = {"train": train_metrics, "val": primary_metrics}
+                best_multi_modal = {"train": train_metrics, "val": multi_modal_metrics} if multi_modal_metrics else None
                 best_epoch = epoch
                 epochs_without_improvement = 0  # Reset counter
                 self._save_model(epoch)
                 print(f"  Epoch {epoch+1}: New best! Score={best_score:.4f} (improved by {improvement:.4f})")
             elif improvement > 0:
                 # Very small improvement (within min_delta)
-                best_metrics = {"train": train_metrics, "val": val_metrics}
+                best_metrics = {"train": train_metrics, "val": primary_metrics}
+                best_multi_modal = {"train": train_metrics, "val": multi_modal_metrics} if multi_modal_metrics else None
                 epochs_without_improvement = 0  # Reset counter
                 self._save_model(epoch)
                 print(f"  Epoch {epoch+1}: Small improvement. Score={current_score:.4f}")
@@ -111,7 +121,7 @@ class BaseTrainer(ABC):
                 # No improvement
                 epochs_without_improvement += 1
                 print(f"  Epoch {epoch+1}: No improvement ({epochs_without_improvement}/{patience})")
-                
+
                 if epochs_without_improvement >= patience:
                     print(f"\n⏹ Early stopping at epoch {epoch+1}")
                     print(f"  Best epoch: {best_epoch + 1} (score={best_score:.4f})")
@@ -124,13 +134,16 @@ class BaseTrainer(ABC):
         # Save final results to results.json
         if best_metrics:
             print(f"\n✓ Training complete. Best validation score: {best_score:.4f} at epoch {best_epoch + 1}")
-            self._record_final_results(best_metrics)
-            # Also record acoustic-only evaluation for models that support it
-            if hasattr(self, '_evaluate_acoustic_only'):
-                self._record_acoustic_only_results(best_metrics)
+            # Save results with both primary and multi-modal metrics
+            self._record_final_results(best_metrics, best_multi_modal)
 
-    def _record_final_results(self, metrics: Dict[str, Any]) -> None:
-        """Append the best metrics to results.json."""
+    def _record_final_results(self, metrics: Dict[str, Any], multi_modal_metrics: Optional[Dict[str, Any]] = None) -> None:
+        """Append the best metrics to results.json with unified naming.
+        
+        Args:
+            metrics: Dictionary with 'train' and 'val' keys containing PRIMARY metrics (acoustic-only)
+            multi_modal_metrics: Multi-modal metrics (if applicable)
+        """
         results_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
         os.makedirs(results_dir, exist_ok=True)
         results_path = os.path.join(results_dir, "results.json")
@@ -164,8 +177,10 @@ class BaseTrainer(ABC):
             "timestamp": datetime.datetime.now().isoformat(),
             "mode": mode,
             "task": "counting" if is_counting else "presence",
-            "train": {},
-            "val": {},
+            "train": {},  # PRIMARY (acoustic-only)
+            "val": {},    # PRIMARY (acoustic-only)
+            "multi_train": None,  # Multi-modal (if applicable)
+            "multi_val": None,    # Multi-modal (if applicable)
             "test": None  # To be filled by simulation evaluation
         }
 
@@ -211,6 +226,49 @@ class BaseTrainer(ABC):
                 "cod_f1": metrics["val"].get("cod_f1", 0),
                 "empty_f1": metrics["val"].get("empty_f1", 0),
             }
+        
+        # Add multi-modal metrics if available (for models that support both)
+        if multi_modal_metrics:
+            if is_counting:
+                entry["multi_train"] = {
+                    "loss": multi_modal_metrics["train"].get("loss", 0),
+                    "mae": multi_modal_metrics["train"].get("mae", 0),
+                    "rmse": multi_modal_metrics["train"].get("rmse", 0),
+                    "kingfish_mae": multi_modal_metrics["train"].get("kingfish_mae", 0),
+                    "snapper_mae": multi_modal_metrics["train"].get("snapper_mae", 0),
+                    "cod_mae": multi_modal_metrics["train"].get("cod_mae", 0),
+                    "empty_mae": multi_modal_metrics["train"].get("empty_mae", 0),
+                }
+                entry["multi_val"] = {
+                    "loss": multi_modal_metrics["val"].get("loss", 0),
+                    "mae": multi_modal_metrics["val"].get("mae", 0),
+                    "rmse": multi_modal_metrics["val"].get("rmse", 0),
+                    "kingfish_mae": multi_modal_metrics["val"].get("kingfish_mae", 0),
+                    "snapper_mae": multi_modal_metrics["val"].get("snapper_mae", 0),
+                    "cod_mae": multi_modal_metrics["val"].get("cod_mae", 0),
+                    "empty_mae": multi_modal_metrics["val"].get("empty_mae", 0),
+                }
+            else:
+                entry["multi_train"] = {
+                    "loss": multi_modal_metrics["train"].get("loss", 0),
+                    "f1": multi_modal_metrics["train"].get("f1", 0),
+                    "precision": multi_modal_metrics["train"].get("precision", 0),
+                    "recall": multi_modal_metrics["train"].get("recall", 0),
+                    "kingfish_f1": multi_modal_metrics["train"].get("kingfish_f1", 0),
+                    "snapper_f1": multi_modal_metrics["train"].get("snapper_f1", 0),
+                    "cod_f1": multi_modal_metrics["train"].get("cod_f1", 0),
+                    "empty_f1": multi_modal_metrics["train"].get("empty_f1", 0),
+                }
+                entry["multi_val"] = {
+                    "loss": multi_modal_metrics["val"].get("loss", 0),
+                    "f1": multi_modal_metrics["val"].get("f1", 0),
+                    "precision": multi_modal_metrics["val"].get("precision", 0),
+                    "recall": multi_modal_metrics["val"].get("recall", 0),
+                    "kingfish_f1": multi_modal_metrics["val"].get("kingfish_f1", 0),
+                    "snapper_f1": multi_modal_metrics["val"].get("snapper_f1", 0),
+                    "cod_f1": multi_modal_metrics["val"].get("cod_f1", 0),
+                    "empty_f1": multi_modal_metrics["val"].get("empty_f1", 0),
+                }
 
         # Load existing results
         results = []
@@ -227,187 +285,36 @@ class BaseTrainer(ABC):
             json.dump(results, f, indent=2)
         print(f"Results saved to {results_path}")
 
-    def _record_acoustic_only_results(self, metrics: Dict[str, Any]) -> None:
-        """Append acoustic-only evaluation entry for JEPA to results.json."""
-        results_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "results")
-        os.makedirs(results_dir, exist_ok=True)
-        results_path = os.path.join(results_dir, "results.json")
-
-        print("\nEvaluating acoustic-only performance...")
-
-        # Import here to avoid circular imports
-        from data import FishDataset, create_stratified_split, create_visual_transform, AugmentationConfig
-        from torch.utils.data import Subset
-        import torch
-        import torch.nn.functional as F
-
-        device = self.device  # Use the same device as training
-        
-        # Determine task type
-        task = getattr(self.model, 'task', 'presence')
-        is_counting = (task == "counting")
-
-        # Create evaluation transform (no augmentation)
-        eval_transform = create_visual_transform(AugmentationConfig(enabled=False))
-        
-        # Correctly resolve project root dataset path
-        ml_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        project_root = os.path.dirname(ml_dir)
-        dataset_path = os.path.join(project_root, "dataset", self.config.dataset)
-
-        # Create dataset and split (EXACTLY as training)
-        # Use mode="train" to ensure balancing logic is applied if it was for training
-        seed = getattr(self.config, 'seed', 42)
-        full_dataset = FishDataset(dataset_path, transform=eval_transform, mode="train", multi_label=True, task=task, seed=seed)
-        
-        if len(full_dataset) == 0:
-            print(f"  Warning: No samples found in {dataset_path}. Skipping acoustic-only evaluation.")
-            return
-
-        # Use the same stratified split logic with the same seed
-        train_indices, val_indices = create_stratified_split(full_dataset)
-
-        # Evaluate on train split (acoustic-only)
-        train_ds = Subset(full_dataset, train_indices)
-        train_loader = torch.utils.data.DataLoader(train_ds, batch_size=self.config.batch_size, shuffle=False)
-
-        # Evaluate on val split (acoustic-only)
-        val_ds = Subset(full_dataset, val_indices)
-        val_loader = torch.utils.data.DataLoader(val_ds, batch_size=self.config.batch_size, shuffle=False)
-
-        # Evaluate acoustic-only
-        # Load the BEST model weights saved during training
-        best_weights_path = os.path.join(self.config.weights_dir, "fish_clip_model.pth")
-        if os.path.exists(best_weights_path):
-            self.model.load_state_dict(torch.load(best_weights_path, map_location=device, weights_only=True))
-        
-        self.model.eval()
-
-        if is_counting:
-            # Counting task: evaluate MAE/RMSE
-            def evaluate_acoustic(loader):
-                total_mae = 0
-                total_rmse = 0
-                total_samples = 0
-
-                with torch.no_grad():
-                    for _, ac, labels in loader:
-                        ac, labels = ac.to(device), labels.to(device)
-                        _, species_logits = self.model.forward_ac_to_vis_latent(ac)
-
-                        pred_counts = species_logits.clamp(min=0)
-                        true_counts = labels.clamp(min=0)
-
-                        mae = F.l1_loss(pred_counts, true_counts)
-                        rmse = torch.sqrt(F.mse_loss(pred_counts, true_counts))
-
-                        total_mae += mae.item() * len(labels)
-                        total_rmse += rmse.item() * len(labels)
-                        total_samples += len(labels)
-
-                return {
-                    "loss": 0,
-                    "mae": total_mae / total_samples if total_samples > 0 else 0,
-                    "rmse": total_rmse / total_samples if total_samples > 0 else 0,
-                }
-
-            acoustic_train_metrics = evaluate_acoustic(train_loader)
-            acoustic_val_metrics = evaluate_acoustic(val_loader)
-
-            print(f"  Acoustic-only Train MAE: {acoustic_train_metrics['mae']:.3f}")
-            print(f"  Acoustic-only Val MAE: {acoustic_val_metrics['mae']:.3f}")
-        else:
-            # Presence task: evaluate F1 scores
-            def evaluate_acoustic(loader):
-                class_tp = torch.zeros(4)
-                class_fp = torch.zeros(4)
-                class_fn = torch.zeros(4)
-
-                with torch.no_grad():
-                    for _, ac, labels in loader:
-                        ac, labels = ac.to(device), labels.to(device)
-                        _, species_logits = self.model.forward_ac_to_vis_latent(ac)
-
-                        probs = torch.sigmoid(species_logits)
-                        preds = (probs > 0.5).float()
-
-                        for i in range(labels.shape[0]):
-                            tp = preds[i] * labels[i]
-                            fp = preds[i] * (1 - labels[i])
-                            fn = (1 - preds[i]) * labels[i]
-                            for c in range(4):
-                                class_tp[c] += tp[c].item()
-                                class_fp[c] += fp[c].item()
-                                class_fn[c] += fn[c].item()
-
-                class_precision = class_tp / (class_tp + class_fp + 1e-8)
-                class_recall = class_tp / (class_tp + class_fn + 1e-8)
-                class_f1 = 2 * class_precision * class_recall / (class_precision + class_recall + 1e-8)
-
-                return {
-                    "kingfish_f1": class_f1[0].item(),
-                    "snapper_f1": class_f1[1].item(),
-                    "cod_f1": class_f1[2].item(),
-                    "empty_f1": class_f1[3].item(),
-                    "avg_f1": class_f1.mean().item(),
-                }
-
-            acoustic_train_metrics = evaluate_acoustic(train_loader)
-            acoustic_val_metrics = evaluate_acoustic(val_loader)
-
-            print(f"  Acoustic-only Train Macro F1: {acoustic_train_metrics['avg_f1']*100:.1f}%")
-            print(f"  Acoustic-only Val Macro F1: {acoustic_val_metrics['avg_f1']*100:.1f}%")
-
-        # Prepare acoustic-only entry
-        entry = {
-            "architecture": "JEPA",
-            "model_type": self.config.model_type,
-            "dataset": self.config.dataset,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "mode": "acoustic_only",
-            "task": "counting" if is_counting else "presence",
-            "train": acoustic_train_metrics,
-            "val": acoustic_val_metrics,
-            "test": None  # To be filled by simulation evaluation
-        }
-
-        # Load existing results
-        results = []
-        if os.path.exists(results_path):
-            try:
-                with open(results_path, "r") as f:
-                    results = json.load(f)
-            except:
-                pass
-
-        results.append(entry)
-
-        with open(results_path, "w") as f:
-            json.dump(results, f, indent=2)
-        print(f"Acoustic-only results saved to {results_path}")
-
-        # Log acoustic-only metrics to wandb
-        wandb.log({
-            "acoustic_only/train_mae": acoustic_train_metrics.get("mae", 0) if is_counting else acoustic_train_metrics.get("avg_f1", 0),
-            "acoustic_only/val_mae": acoustic_val_metrics.get("mae", 0) if is_counting else acoustic_val_metrics.get("avg_f1", 0),
-            "acoustic_only/train_rmse": acoustic_train_metrics.get("rmse", 0) if is_counting else 0,
-            "acoustic_only/val_rmse": acoustic_val_metrics.get("rmse", 0) if is_counting else 0,
-            "acoustic_only/train_f1": 0 if is_counting else acoustic_train_metrics.get("avg_f1", 0),
-            "acoustic_only/val_f1": 0 if is_counting else acoustic_val_metrics.get("avg_f1", 0),
-        })
-
     def _log_metrics(
         self,
         epoch: int,
         train_metrics: Dict[str, float],
-        val_metrics: Dict[str, float]
+        val_metrics: Dict[str, float],
+        multi_modal_metrics: Optional[Dict[str, float]] = None
     ) -> None:
-        """Log metrics to wandb."""
+        """Log metrics to wandb with unified naming.
+        
+        Args:
+            epoch: Current epoch number
+            train_metrics: Training metrics (PRIMARY - acoustic-only)
+            val_metrics: Validation metrics (PRIMARY - acoustic-only)
+            multi_modal_metrics: Multi-modal metrics (if applicable)
+        """
         log_dict = {
             "epoch": epoch + 1,
+            # Primary metrics use standard naming (train_*, val_*)
             **{f"train_{k}": v for k, v in train_metrics.items()},
             **{f"val_{k}": v for k, v in val_metrics.items()},
         }
+        
+        # Multi-modal metrics use multi_* prefix (for models that support both)
+        if multi_modal_metrics:
+            log_dict.update({
+                f"multi_train_{k}": v for k, v in multi_modal_metrics.items()
+            })
+            log_dict.update({
+                f"multi_val_{k}": v for k, v in multi_modal_metrics.items()
+            })
 
         # Log reconstruction images if available
         if "last_recon" in val_metrics and val_metrics["last_recon"] is not None:
@@ -420,21 +327,14 @@ class BaseTrainer(ABC):
 
         wandb.log(log_dict)
 
-    def _log_acoustic_metrics(self, epoch: int, acoustic_metrics: Dict[str, float]) -> None:
-        """Log acoustic-only metrics to wandb."""
-        log_dict = {
-            "epoch": epoch + 1,
-            **{f"acoustic_{k}": v for k, v in acoustic_metrics.items()},
-        }
-        wandb.log(log_dict)
-
     def _evaluate_acoustic_only(self, loader: DataLoader) -> Optional[Dict[str, float]]:
         """
         Evaluate model in acoustic-only mode (no visual input).
         Override in subclasses that support acoustic-only evaluation.
+        Returns None if model doesn't support acoustic-only evaluation.
         """
         return None
-    
+
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Get score used for model selection.
 
