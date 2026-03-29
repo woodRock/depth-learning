@@ -98,17 +98,19 @@ def run_experiments_from_yaml(yaml_path: str):
                         epochs=exp.get("epochs", 50),
                         batch_size=exp.get("batch_size", 32),
                         learning_rate=exp.get("lr", 1e-4),
-                        dropout_prob=exp.get("dropout_prob", 0.5)
+                        dropout_prob=exp.get("dropout_prob", 0.5),
+                        task=mock_args.task  # ← ADD TASK PARAMETER
                     )
-                    job_type = "exp-fusion"
+                    job_type = f"exp-fusion-{mock_args.task}"
                 elif model_name == "translator":
                     conf = TranslatorConfig(
                         dataset=dataset,
                         epochs=exp.get("epochs", 100),
                         batch_size=exp.get("batch_size", 16),
-                        learning_rate=exp.get("lr", 1e-4)
+                        learning_rate=exp.get("lr", 1e-4),
+                        task=mock_args.task  # ← ADD TASK PARAMETER
                     )
-                    job_type = "exp-translator"
+                    job_type = f"exp-translator-{mock_args.task}"
                 elif model_name == "mae":
                     conf = MAEConfig(
                         dataset=dataset,
