@@ -49,7 +49,7 @@ class BaseTrainer(ABC):
     
     def train(self, train_loader: DataLoader, val_loader: DataLoader) -> None:
         """Full training loop with early stopping."""
-        best_score = 0.0
+        best_score = -float('inf')  # Start with worst possible score
         best_metrics = None
         best_multi_modal = None
         best_epoch = 0
