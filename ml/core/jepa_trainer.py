@@ -196,15 +196,47 @@ class JEPATrainer(BaseTrainer):
 
         return result
 
+    def _evaluate_acoustic_only(self, loader: DataLoader) -> Optional[Dict[str, float]]:
+        """Evaluate JEPA model in acoustic-only mode (no visual input)."""
+        self.model.eval()
+        total_samples = 0
+        metrics_sum = {}
+        
+        task = self.task
+        
+        with torch.no_grad():
+            for vis, ac, labels in loader:
+                ac, labels = ac.to(self.device), labels.to(self.device)
+                
+                # Forward pass through acoustic branch only
+                _, species_logits = self.model.forward_ac_to_vis_latent(ac)
+                
+                # Calculate metrics
+                batch_metrics = get_task_metrics(task, species_logits, labels)
+                
+                # Accumulate metrics (weighted by batch size)
+                batch_size = len(labels)
+                for key, value in batch_metrics.items():
+                    if key not in metrics_sum:
+                        metrics_sum[key] = 0.0
+                    metrics_sum[key] += value * batch_size
+                
+                total_samples += batch_size
+        
+        # Average metrics
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in metrics_sum.items()
+        }
+        
+        return avg_metrics
+
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Use task-appropriate metric for model selection."""
         # For counting task, use negative MAE (higher is better)
-        if "mae" in val_metrics:
-            return -val_metrics["mae"]
+        if self.task == "counting":
+            return -val_metrics.get("mae", 0)
         # For presence task, use F1 (higher is better)
-        if val_metrics.get("f1", 0) > 0:
-            return val_metrics["f1"]
-        # For single-label, use combined score
-        return val_metrics.get("acc", 0) * 0.7 + val_metrics.get("sim", 0) * 0.3
+        return val_metrics.get("f1", 0)
 
 

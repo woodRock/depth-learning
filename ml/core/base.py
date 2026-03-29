@@ -22,24 +22,26 @@ logger = get_logger(__name__)
 
 class BaseTrainer(ABC):
     """Abstract base class for all training strategies."""
-    
+
     def __init__(self, config: TrainingConfig, device: torch.device):
         self.config = config
         self.device = device
         self.model = None
         self.optimizer = None
         self.scheduler = None
-    
+        # Determine task from config
+        self.task = getattr(config, 'task', 'presence')
+
     @abstractmethod
     def build_model(self) -> nn.Module:
         """Build the model architecture."""
         pass
-    
+
     @abstractmethod
     def train_epoch(self, loader: DataLoader) -> Dict[str, float]:
         """Train for one epoch."""
         pass
-    
+
     @abstractmethod
     def validate(self, loader: DataLoader) -> Dict[str, float]:
         """Run validation."""
@@ -65,6 +67,15 @@ class BaseTrainer(ABC):
 
             # Logging
             self._log_metrics(epoch, train_metrics, val_metrics)
+            
+            # Log acoustic-only metrics for models that support it (JEPA, Fusion)
+            if hasattr(self, '_evaluate_acoustic_only'):
+                acoustic_metrics = self._evaluate_acoustic_only(val_loader)
+                if acoustic_metrics:
+                    self._log_acoustic_metrics(epoch, acoustic_metrics)
+                    # Add to val_metrics for model selection if acoustic-only mode
+                    if getattr(self.config, 'acoustic_only', False):
+                        val_metrics.update(acoustic_metrics)
 
             # Model saving and early stopping check
             current_score = self._get_save_score(val_metrics)
@@ -114,8 +125,8 @@ class BaseTrainer(ABC):
         if best_metrics:
             print(f"\n✓ Training complete. Best validation score: {best_score:.4f} at epoch {best_epoch + 1}")
             self._record_final_results(best_metrics)
-            # For JEPA, also record acoustic-only evaluation
-            if self.config.model_type != "lewm":
+            # Also record acoustic-only evaluation for models that support it
+            if hasattr(self, '_evaluate_acoustic_only'):
                 self._record_acoustic_only_results(best_metrics)
 
     def _record_final_results(self, metrics: Dict[str, Any]) -> None:
@@ -408,22 +419,33 @@ class BaseTrainer(ABC):
                 log_dict["ground_truth"] = wandb.Image(target_img, caption="Ground truth visual")
 
         wandb.log(log_dict)
+
+    def _log_acoustic_metrics(self, epoch: int, acoustic_metrics: Dict[str, float]) -> None:
+        """Log acoustic-only metrics to wandb."""
+        log_dict = {
+            "epoch": epoch + 1,
+            **{f"acoustic_{k}": v for k, v in acoustic_metrics.items()},
+        }
+        wandb.log(log_dict)
+
+    def _evaluate_acoustic_only(self, loader: DataLoader) -> Optional[Dict[str, float]]:
+        """
+        Evaluate model in acoustic-only mode (no visual input).
+        Override in subclasses that support acoustic-only evaluation.
+        """
+        return None
     
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         """Get score used for model selection.
-        
+
         For counting tasks: returns negative MAE (lower MAE = higher score = better)
         For presence tasks: returns F1 score (higher = better)
-        For single-label: returns accuracy (higher = better)
         """
-        # Counting task: minimize MAE, so negate it (higher is better)
-        if "mae" in val_metrics:
-            return -val_metrics["mae"]
-        # Presence task: maximize F1
-        if "f1" in val_metrics and val_metrics["f1"] > 0:
-            return val_metrics["f1"]
-        # Single-label classification: maximize accuracy
-        return val_metrics.get("acc", 0.0)
+        # Use task attribute to determine which metric to use
+        if self.task == "counting":
+            return -val_metrics.get("mae", 0)
+        else:  # presence task
+            return val_metrics.get("f1", 0)
     
     def _save_model(self, epoch: int) -> None:
         """Save model weights."""

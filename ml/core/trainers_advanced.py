@@ -263,6 +263,41 @@ class FusionTrainer(BaseTrainer):
         # For presence task, higher F1 is better
         return val_metrics.get("acoustic_f1", 0)
 
+    def _evaluate_acoustic_only(self, loader: DataLoader) -> Optional[Dict[str, float]]:
+        """Evaluate Fusion model in acoustic-only mode (zero visual input)."""
+        self.model.eval()
+        total_samples = 0
+        metrics_sum = {}
+        
+        with torch.no_grad():
+            for vis, ac, labels in loader:
+                vis, ac, labels = vis.to(self.device), ac.to(self.device), labels.to(self.device)
+                vis_feats = self.visual_backbone(vis).squeeze(-1).squeeze(-1)
+                
+                # Use zero visual features for acoustic-only evaluation
+                zero_vis = torch.zeros_like(vis_feats)
+                logits_acoustic = self.model(zero_vis, ac, mask_ratio=0.0)
+                
+                # Calculate metrics
+                batch_metrics = get_task_metrics(self.task, logits_acoustic, labels)
+                
+                # Accumulate metrics (weighted by batch size)
+                batch_size = len(labels)
+                for key, value in batch_metrics.items():
+                    if key not in metrics_sum:
+                        metrics_sum[key] = 0.0
+                    metrics_sum[key] += value * batch_size
+                
+                total_samples += batch_size
+        
+        # Average metrics
+        avg_metrics = {
+            key: value / total_samples if total_samples > 0 else 0.0
+            for key, value in metrics_sum.items()
+        }
+        
+        return avg_metrics
+
 
 class TranslatorTrainer(BaseTrainer):
     """Trainer for Acoustic-to-Image Translator model."""
