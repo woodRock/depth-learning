@@ -259,9 +259,9 @@ class FusionTrainer(BaseTrainer):
     def _get_save_score(self, val_metrics: Dict[str, float]) -> float:
         # For counting task, lower MAE is better
         if self.task == "counting":
-            return -val_metrics.get("acoustic_mae", 0)
+            return -val_metrics.get("mae", 0)
         # For presence task, higher F1 is better
-        return val_metrics.get("acoustic_f1", 0)
+        return val_metrics.get("f1", 0)
 
     def _evaluate_acoustic_only(self, loader: DataLoader) -> Optional[Dict[str, float]]:
         """Evaluate Fusion model in acoustic-only mode (zero visual input)."""
