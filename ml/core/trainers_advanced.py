@@ -86,23 +86,36 @@ class DecoderTrainer(BaseTrainer):
         from models.jepa import CrossModalJEPA
         from models.acoustic import ConvEncoder, TransformerEncoder
         
-        jepa_weights = os.path.join(self.config.weights_dir, "fish_clip_model.pth")
-        config_path = os.path.join(self.config.weights_dir, "model_config.json")
+        # Determine base weights directory
+        ml_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        weights_base = os.path.join(ml_dir, "weights")
+        
+        # Look for JEPA weights specifically (ignoring seed suffix for now, but keeping dataset)
+        # Based on current directory structure: weights/jepa_<dataset>
+        jepa_dir = os.path.join(weights_base, f"jepa_{self.config.dataset}")
+        
+        # Handle naming variation with 'seed42' if the user mentioned it
+        if not os.path.exists(jepa_dir):
+             jepa_dir = os.path.join(weights_base, f"JEPA_{self.config.dataset}_seed42")
+
+        jepa_weights = os.path.join(jepa_dir, "fish_clip_model.pth")
+        config_path = os.path.join(jepa_dir, "model_config.json")
         
         if not os.path.exists(jepa_weights):
-            # Try looking in subdirectories if weights_dir is just "weights"
-            alt_path = os.path.join(self.config.weights_dir, f"jepa_{self.config.dataset}", "fish_clip_model.pth")
-            if os.path.exists(alt_path):
-                jepa_weights = alt_path
-                config_path = os.path.join(os.path.dirname(alt_path), "model_config.json")
-            else:
-                raise FileNotFoundError(f"JEPA weights not found. Train JEPA first.")
+            raise FileNotFoundError(f"JEPA weights not found at {jepa_weights}. Train JEPA first.")
         
-        model_type = "conv"
+        # Read config to determine model type
+        model_type = "transformer" # Default to transformer as it's the current default
         if os.path.exists(config_path):
             with open(config_path, "r") as f:
-                cfg = json.load(f)
-                model_type = cfg.get("model_type", "conv")
+                cfg_data = json.load(f)
+                # Some configs might have model_type in a nested 'config' dict
+                if "config" in cfg_data and "model_type" in cfg_data["config"]:
+                    model_type = cfg_data["config"]["model_type"]
+                else:
+                    model_type = cfg_data.get("model_type", "transformer")
+        
+        logger.info(f"Loading JEPA for Decoder training: {model_type} from {jepa_weights}")
         
         ac_encoder = ConvEncoder() if model_type == "conv" else TransformerEncoder()
         jepa = CrossModalJEPA(ac_encoder=ac_encoder).to(self.device)
