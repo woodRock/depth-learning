@@ -22,6 +22,7 @@ from models.lewm_plus import LeWMPlus
 from models.lewm_multilabel import LeWorldModelMultiLabel
 from models.acoustic import ConvEncoder, TransformerEncoder
 from models.transformer_translator import AcousticToImageTransformer
+from models.fusion import MaskedAttentionFusion
 from utils.logging import setup_logging, get_logger
 
 # Initialize logging
@@ -48,6 +49,7 @@ def benchmark_model(model_name: str, model: nn.Module, device: torch.device,
     
     # Dummy data
     vis = torch.randn(batch_size, 3, 224, 224).to(device)
+    vis_feats = torch.randn(batch_size, 2048).to(device) # For Fusion
     ac = torch.randn(batch_size, 32 * 256 * 3).to(device) # Flattened acoustic
     # Multi-hot labels for presence/absence
     labels = torch.randint(0, 2, (batch_size, 4)).float().to(device)
@@ -65,6 +67,8 @@ def benchmark_model(model_name: str, model: nn.Module, device: torch.device,
             _ = model(vis, ac, labels)
         elif model_name == "LeWM":
             _ = model(ac)
+        elif model_name == "Fusion":
+            _ = model(vis_feats, ac)
         torch.cuda.synchronize() if device.type == "cuda" else None
 
     # Reset VRAM tracking
@@ -98,6 +102,10 @@ def benchmark_model(model_name: str, model: nn.Module, device: torch.device,
                 pred_emb, goal_emb, species_logits, labels,
                 recon_img=recon_img, target_img=vis
             )
+
+        elif model_name == "Fusion":
+            logits = model(vis_feats, ac)
+            loss = F.binary_cross_entropy_with_logits(logits, labels)
             
         loss.backward()
         optimizer.step()
@@ -167,7 +175,8 @@ def main():
         ("Translator", AcousticToImageTransformer(d_model=256, patch_size=16)),
         ("JEPA", CrossModalJEPA(ac_encoder=TransformerEncoder(embed_dim=256), embed_dim=256)),
         ("LeWM", LeWorldModelMultiLabel(embed_dim=256, use_decoder=True)),
-        ("LeWM++", LeWMPlus(ac_encoder=TransformerEncoder(embed_dim=256), embed_dim=256, use_decoder=True))
+        ("LeWM++", LeWMPlus(ac_encoder=TransformerEncoder(embed_dim=256), embed_dim=256, use_decoder=True)),
+        ("Fusion", MaskedAttentionFusion(d_model=256, nhead=8, num_classes=4))
     ]
 
     results = []
