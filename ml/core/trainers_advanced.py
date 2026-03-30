@@ -15,6 +15,9 @@ import wandb
 from .base import BaseTrainer
 from data import FishDataset, ImageLatentDataset
 from utils.metrics import get_task_metrics, SPECIES_NAMES
+from utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class DecoderTrainer(BaseTrainer):
