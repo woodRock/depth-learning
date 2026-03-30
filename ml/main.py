@@ -62,12 +62,11 @@ def cmd_experiment(args):
     logger.info(f"Running experiments from: {args.config}")
     run_experiments_from_yaml(args.config)
 
-def cmd_visualize(args):
-    """Route to visualization logic."""
-    from cli.visualize import main as visualize_main
-    # Update sys.argv to pass args to visualize_main
+def cmd_benchmark(args):
+    """Route to benchmark logic."""
+    from cli.benchmark import main as benchmark_main
     sys.argv = [sys.argv[0]] + sys.argv[2:]
-    visualize_main()
+    benchmark_main()
 
 def main():
     parser = argparse.ArgumentParser(
@@ -102,19 +101,26 @@ def main():
     viz_parser.add_argument("--dataset", required=True, help="Dataset to use (e.g. extreme)")
     viz_parser.add_argument("-n", type=int, default=10, help="Number of examples")
 
+    # Benchmark subcommand
+    bench_parser = subparsers.add_parser("benchmark", help="Evaluate computational cost")
+    bench_parser.add_argument("--batch-size", type=int, default=16, help="Batch size")
+    bench_parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
+
     # If no arguments, print help
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
-    # For 'train' and 'visualize', we want to stop parsing here and let the sub-scripts handle their own args
-    if len(sys.argv) > 1 and sys.argv[1] in ["train", "visualize"]:
+    # For 'train', 'visualize', and 'benchmark', we want to stop parsing here
+    if len(sys.argv) > 1 and sys.argv[1] in ["train", "visualize", "benchmark"]:
         # We handle this specially to pass all subsequent args to the respective script
         args, unknown = parser.parse_known_args()
         if args.action == "train":
             cmd_train(args)
         elif args.action == "visualize":
             cmd_visualize(args)
+        elif args.action == "benchmark":
+            cmd_benchmark(args)
     else:
         args = parser.parse_args()
         if args.action == "serve":
