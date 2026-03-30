@@ -62,6 +62,13 @@ def cmd_experiment(args):
     logger.info(f"Running experiments from: {args.config}")
     run_experiments_from_yaml(args.config)
 
+def cmd_visualize(args):
+    """Route to visualization logic."""
+    from cli.visualize import main as visualize_main
+    # Update sys.argv to pass args to visualize_main
+    sys.argv = [sys.argv[0]] + sys.argv[2:]
+    visualize_main()
+
 def main():
     parser = argparse.ArgumentParser(
         description="Depth Learning Universal CLI",
@@ -90,16 +97,24 @@ def main():
     experiment_parser = subparsers.add_parser("experiment", help="Run experiments from YAML")
     experiment_parser.add_argument("--config", required=True, help="Path to YAML config file")
 
+    # Visualize subcommand
+    viz_parser = subparsers.add_parser("visualize", help="Compare model reconstructions")
+    viz_parser.add_argument("--dataset", required=True, help="Dataset to use (e.g. extreme)")
+    viz_parser.add_argument("-n", type=int, default=10, help="Number of examples")
+
     # If no arguments, print help
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
-    # For 'train', we want to stop parsing here and let train.py handle its own args
-    if len(sys.argv) > 1 and sys.argv[1] == "train":
-        # We handle this specially to pass all subsequent args to the train script
+    # For 'train' and 'visualize', we want to stop parsing here and let the sub-scripts handle their own args
+    if len(sys.argv) > 1 and sys.argv[1] in ["train", "visualize"]:
+        # We handle this specially to pass all subsequent args to the respective script
         args, unknown = parser.parse_known_args()
-        cmd_train(args)
+        if args.action == "train":
+            cmd_train(args)
+        elif args.action == "visualize":
+            cmd_visualize(args)
     else:
         args = parser.parse_args()
         if args.action == "serve":
