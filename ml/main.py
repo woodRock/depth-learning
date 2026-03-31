@@ -68,6 +68,12 @@ def cmd_benchmark(args):
     sys.argv = [sys.argv[0]] + sys.argv[2:]
     benchmark_main()
 
+def cmd_ablation(args):
+    """Route to SNR ablation study logic."""
+    from cli.ablation import main as ablation_main
+    sys.argv = [sys.argv[0]] + sys.argv[2:]
+    ablation_main()
+
 def main():
     parser = argparse.ArgumentParser(
         description="Depth Learning Universal CLI",
@@ -106,13 +112,19 @@ def main():
     bench_parser.add_argument("--batch-size", type=int, default=16, help="Batch size")
     bench_parser.add_argument("--epochs", type=int, default=10, help="Number of epochs")
 
+    # Ablation subcommand
+    ablation_parser = subparsers.add_parser("ablation", help="Perform SNR ablation study")
+    ablation_parser.add_argument("-n", "--epochs", type=int, default=10, help="Number of epochs per model")
+    ablation_parser.add_argument("--dataset", required=True, help="Dataset to use")
+    # Remaining args will be passed to ablation.py
+
     # If no arguments, print help
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(1)
 
-    # For 'train', 'visualize', and 'benchmark', we want to stop parsing here
-    if len(sys.argv) > 1 and sys.argv[1] in ["train", "visualize", "benchmark"]:
+    # For 'train', 'visualize', 'benchmark', and 'ablation', we want to stop parsing here
+    if len(sys.argv) > 1 and sys.argv[1] in ["train", "visualize", "benchmark", "ablation"]:
         # We handle this specially to pass all subsequent args to the respective script
         args, unknown = parser.parse_known_args()
         if args.action == "train":
@@ -121,6 +133,8 @@ def main():
             cmd_visualize(args)
         elif args.action == "benchmark":
             cmd_benchmark(args)
+        elif args.action == "ablation":
+            cmd_ablation(args)
     else:
         args = parser.parse_args()
         if args.action == "serve":

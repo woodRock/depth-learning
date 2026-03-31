@@ -72,6 +72,7 @@ class FishDataset(Dataset):
         seed: int = 42,
         multi_label: bool = False,  # New: support multi-label format
         task: str = "presence",  # "presence" or "counting"
+        snr_db: Optional[float] = None,  # New: SNR level for ablation study
     ):
         self.data_dir = Path(data_dir)
         self.mode = mode
@@ -79,6 +80,7 @@ class FishDataset(Dataset):
         self.seed = seed
         self.multi_label = multi_label  # True for presence/absence detection
         self.task = task  # "presence" or "counting"
+        self.snr_db = snr_db
 
         self.visual_files = self._load_valid_samples()
 
@@ -239,6 +241,24 @@ class FishDataset(Dataset):
         # Transpose to match training format: (32 pings, 256 depth, 3 channels)
         data = last_32_pings.transpose(1, 0, 2).astype(np.float32) / 255.0
         
+        # Inject Gaussian noise for SNR ablation study
+        if self.snr_db is not None:
+            # Calculate signal power: P = mean(x^2)
+            # We assume signal is zero-mean for SNR calculation (it's normalized [0,1], so we might center it)
+            # Actually, the standard way in image processing is to use the raw signal power
+            signal_power = np.mean(data**2)
+            
+            if signal_power > 0:
+                # SNR = 10 * log10(P_signal / P_noise)
+                # P_noise = P_signal / 10^(SNR/10)
+                snr_linear = 10**(self.snr_db / 10.0)
+                noise_variance = signal_power / snr_linear
+                noise_std = np.sqrt(noise_variance)
+                
+                # Create Gaussian noise
+                noise = np.random.normal(0, noise_std, data.shape)
+                data = (data + noise).clip(0, 1)
+        
         return data
 
     def _apply_acoustic_augmentation(self, data: np.ndarray) -> np.ndarray:
@@ -387,10 +407,11 @@ def create_data_loaders(
     num_workers: int = 4,
     seed: int = 42,
     task: str = "presence",  # "presence" or "counting"
+    snr_db: Optional[float] = None,  # New: SNR level for ablation study
 ) -> tuple:
     """Create train and validation data loaders with stratified splitting."""
     # 1. Create one full dataset without balancing to get consistent indices
-    full_dataset = FishDataset(dataset_path, transform=transform, mode="val", seed=seed, task=task)
+    full_dataset = FishDataset(dataset_path, transform=transform, mode="val", seed=seed, task=task, snr_db=snr_db)
     
     if len(full_dataset) < batch_size:
         raise ValueError(f"Not enough data. Found {len(full_dataset)} samples.")
@@ -403,7 +424,7 @@ def create_data_loaders(
     # 3. Create training dataset (balanced)
     # Note: We can't easily balance AFTER splitting without changing indices.
     # However, if we balance the WHOLE dataset first (deterministically), it works.
-    balanced_dataset = FishDataset(dataset_path, transform=transform, mode="train", seed=seed, task=task)
+    balanced_dataset = FishDataset(dataset_path, transform=transform, mode="train", seed=seed, task=task, snr_db=snr_db)
     
     # Now we need to split the BALANCED dataset
     train_indices, val_indices = create_stratified_split(balanced_dataset)
@@ -421,7 +442,7 @@ def create_data_loaders(
     # But FishDataset.mode is set for the whole balanced_dataset.
     # We can create a separate dataset for validation with the same balanced files.
     
-    val_ds_base = FishDataset(dataset_path, transform=transform, mode="val", seed=seed, task=task)
+    val_ds_base = FishDataset(dataset_path, transform=transform, mode="val", seed=seed, task=task, snr_db=snr_db)
     val_ds_base.visual_files = balanced_dataset.visual_files # COPY the balanced file list!
     val_ds = Subset(val_ds_base, val_indices)
 

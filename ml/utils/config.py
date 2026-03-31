@@ -48,6 +48,9 @@ class TrainingConfig:
     # Reproducibility
     seed: int = 42
 
+    # Ablation settings
+    snr_db: Optional[float] = None
+
     # Paths
     weights_dir: str = "weights"
     
@@ -73,6 +76,7 @@ class TrainingConfig:
             seed=getattr(args, 'seed', 42),
             early_stop_patience=getattr(args, 'patience', 15),
             early_stop_min_delta=getattr(args, 'min_delta', 0.001),
+            snr_db=getattr(args, 'snr_db', None),
         )
 
 
@@ -116,6 +120,7 @@ class TranslatorConfig:
     d_model: int = 256
     patch_size: int = 16
     task: str = "presence"  # "presence" or "counting"
+    snr_db: Optional[float] = None  # New: SNR level for ablation study
     weights_dir: str = "weights"
     wandb_entity: str = "victoria-university-of-wellington"
     wandb_project: str = "depth-learning"
@@ -197,4 +202,10 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         type=float,
         default=0.001,
         help="Early stopping min delta (min improvement to count, default: 0.001)"
+    )
+    parser.add_argument(
+        "--snr-db",
+        type=float,
+        default=None,
+        help="SNR level in dB for ablation study (default: None)"
     )

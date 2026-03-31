@@ -109,7 +109,8 @@ def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
             transform=transform,
             batch_size=config.batch_size,
             seed=getattr(args, 'seed', 42),
-            task=task
+            task=task,
+            snr_db=getattr(config, 'snr_db', None)
         )
 
     # Get trainer and setup optimizer
