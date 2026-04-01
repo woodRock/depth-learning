@@ -24,7 +24,7 @@ def main():
     parser = argparse.ArgumentParser(description="SNR Ablation Study")
     parser.add_argument("-n", "--epochs", type=int, default=10, help="Number of epochs per model")
     parser.add_argument("--dataset", type=str, default="easy", choices=["easy", "medium", "hard", "extreme"], help="Dataset to use")
-    parser.add_argument("--task", type=str, default="presence", choices=["presence", "counting"], help="Task to perform")
+    parser.add_argument("--task", type=str, default="presence", choices=["presence", "majority", "counting"], help="Task to perform")
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
     
     args = parser.parse_args()
@@ -34,7 +34,7 @@ def main():
     
     for model_name in models:
         for snr in snr_levels:
-            logger.info(f"--- Ablation Study: Model={model_name}, SNR={snr}dB, Epochs={args.epochs} ---")
+            logger.info(f"--- Ablation Study: Model={model_name}, SNR={snr}dB, Task={args.task}, Epochs={args.epochs} ---")
             
             # Create a mock args namespace for run_training
             mock_args = argparse.Namespace()
@@ -44,17 +44,17 @@ def main():
             mock_args.epochs = args.epochs
             mock_args.batch_size = args.batch_size
             mock_args.lr = 1e-4 if model_name == "translator" else 3e-4
-            mock_args.with_aug = False # Disable standard aug for ablation purity?
+            mock_args.with_aug = False 
             mock_args.light_aug = False
             mock_args.rotation_degrees = 30
             mock_args.seed = 42
             mock_args.snr_db = float(snr)
-            mock_args.weights_dir = f"weights/ablation_{model_name}_snr{snr}"
+            mock_args.weights_dir = f"weights/ablation_{model_name}_{args.task}_snr{snr}"
             
             if model_name == "lewm":
                 mock_args.model = "lewm"
                 config = TrainingConfig.from_args(mock_args)
-                job_type = f"ablation-lewm-snr{snr}"
+                job_type = f"ablation-lewm-{args.task}-snr{snr}"
             else: # translator
                 config = TranslatorConfig(
                     dataset=args.dataset,
@@ -68,7 +68,7 @@ def main():
                     snr_db=float(snr),
                     weights_dir=mock_args.weights_dir
                 )
-                job_type = f"ablation-translator-snr{snr}"
+                job_type = f"ablation-translator-{args.task}-snr{snr}"
             
             # Run the training
             try:

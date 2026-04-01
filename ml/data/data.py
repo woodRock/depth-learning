@@ -206,8 +206,12 @@ class FishDataset(Dataset):
                     multi_hot = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
                     multi_hot[label] = 1.0
                     label_tensor = multi_hot
-            else:
+            elif self.task == "majority":
                 # Single-label classification (class indices)
+                label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
+                label_tensor = torch.tensor(label, dtype=torch.long)
+            else:
+                # Default/Fallback
                 label = self.SPECIES_MAP.get(meta.get("dominant_species", "Empty"), 3)
                 label_tensor = torch.tensor(label, dtype=torch.long)
 

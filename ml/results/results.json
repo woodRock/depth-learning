@@ -1,0 +1,292 @@
+[
+  {
+    "architecture": "LeWM",
+    "model_type": "lewm",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T10:46:23.271385",
+    "mode": "acoustic-only",
+    "task": "counting",
+    "train": {
+      "loss": 1.1986607384681702,
+      "mae": 0.6545389813184738,
+      "rmse": 1.0822839450836181,
+      "kingfish_mae": 0.6243592482805252,
+      "snapper_mae": 1.20699600815773,
+      "cod_mae": 0.7866123241186141,
+      "empty_mae": 0.0001883331185672432
+    },
+    "val": {
+      "loss": 1.1415066306407635,
+      "mae": 0.6155441737174988,
+      "rmse": 1.0543567180633544,
+      "kingfish_mae": 0.5298297882080079,
+      "snapper_mae": 1.173557481765747,
+      "cod_mae": 0.758789336681366,
+      "empty_mae": 0.0
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "LeWM",
+    "model_type": "lewm",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T12:02:01.719707",
+    "mode": "acoustic-only",
+    "task": "counting",
+    "train": {
+      "loss": 1.1753902661800384,
+      "mae": 0.6459548389911651,
+      "rmse": 1.0727775704860687,
+      "kingfish_mae": 0.6266438031196594,
+      "snapper_mae": 1.191088387966156,
+      "cod_mae": 0.7660725444555283,
+      "empty_mae": 1.4601167058572174e-05
+    },
+    "val": {
+      "loss": 1.132899848314432,
+      "mae": 0.613220157623291,
+      "rmse": 1.0566128540039061,
+      "kingfish_mae": 0.5179141807556152,
+      "snapper_mae": 1.1788065814971924,
+      "cod_mae": 0.7561599373817444,
+      "empty_mae": 0.0
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "LeWM",
+    "model_type": "lewm",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T12:23:25.225824",
+    "mode": "acoustic-only",
+    "task": "counting",
+    "train": {
+      "loss": 1.1039452362060547,
+      "mae": 0.6259134805202484,
+      "rmse": 1.0421180760860442,
+      "kingfish_mae": 0.6093048739433289,
+      "snapper_mae": 1.1743534445762633,
+      "cod_mae": 0.7199956250190734,
+      "empty_mae": 0.0
+    },
+    "val": {
+      "loss": 1.1656239720491262,
+      "mae": 0.613500509262085,
+      "rmse": 1.0631830024719238,
+      "kingfish_mae": 0.5243036103248596,
+      "snapper_mae": 1.162174048423767,
+      "cod_mae": 0.7675243759155274,
+      "empty_mae": 0.0
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "LeWM",
+    "model_type": "lewm",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T12:39:28.624894",
+    "mode": "acoustic-only",
+    "task": "counting",
+    "train": {
+      "loss": 1.1414624381065368,
+      "mae": 0.6333149772882462,
+      "rmse": 1.0562366878986358,
+      "kingfish_mae": 0.6069839543104172,
+      "snapper_mae": 1.1805665028095245,
+      "cod_mae": 0.7457094478607178,
+      "empty_mae": 0.0
+    },
+    "val": {
+      "loss": 1.09951028915552,
+      "mae": 0.5997368478775025,
+      "rmse": 1.03922119140625,
+      "kingfish_mae": 0.4981428623199463,
+      "snapper_mae": 1.1639980602264404,
+      "cod_mae": 0.7368064737319946,
+      "empty_mae": 0.0
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "LeWM",
+    "model_type": "lewm",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T12:55:19.675664",
+    "mode": "acoustic-only",
+    "task": "counting",
+    "train": {
+      "loss": 1.1464802825450897,
+      "mae": 0.6356532227993011,
+      "rmse": 1.058462278842926,
+      "kingfish_mae": 0.6246557313203812,
+      "snapper_mae": 1.1708707547187804,
+      "cod_mae": 0.7466941517591477,
+      "empty_mae": 0.0003922622464597225
+    },
+    "val": {
+      "loss": 1.0872909289139967,
+      "mae": 0.5975280165672302,
+      "rmse": 1.031233229637146,
+      "kingfish_mae": 0.5066558265686035,
+      "snapper_mae": 1.1453145742416382,
+      "cod_mae": 0.7381416368484497,
+      "empty_mae": 0.0
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "default",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T13:07:38.879924",
+    "mode": "multi-modal",
+    "task": "counting",
+    "train": {
+      "loss": 1.1628369249403476,
+      "mae": 0.6559175622463226,
+      "rmse": 1.055077974796295,
+      "kingfish_mae": 0.6861178743839264,
+      "snapper_mae": 1.2087607967853546,
+      "cod_mae": 0.688697879910469,
+      "empty_mae": 0.040093711391091344
+    },
+    "val": {
+      "loss": 1.1871790940371842,
+      "mae": 0.6298941731452942,
+      "rmse": 1.067317099571228,
+      "kingfish_mae": 0.6147149515151977,
+      "snapper_mae": 1.193188042640686,
+      "cod_mae": 0.7014993214607239,
+      "empty_mae": 0.01017442561686039
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "default",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T13:39:32.004329",
+    "mode": "multi-modal",
+    "task": "counting",
+    "train": {
+      "loss": 1.1579875369742512,
+      "mae": 0.655618570446968,
+      "rmse": 1.051886111497879,
+      "kingfish_mae": 0.6782132148742676,
+      "snapper_mae": 1.2286691713333129,
+      "cod_mae": 0.6742711615562439,
+      "empty_mae": 0.04132072187960148
+    },
+    "val": {
+      "loss": 1.1890612584180558,
+      "mae": 0.6268109083175659,
+      "rmse": 1.0656398677825927,
+      "kingfish_mae": 0.6284669351577759,
+      "snapper_mae": 1.183441743850708,
+      "cod_mae": 0.6835898447036743,
+      "empty_mae": 0.011745144277811051
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "default",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T13:51:42.785506",
+    "mode": "multi-modal",
+    "task": "counting",
+    "train": {
+      "loss": 1.153027365654707,
+      "mae": 0.656733894944191,
+      "rmse": 1.0513058757781983,
+      "kingfish_mae": 0.6876367026567459,
+      "snapper_mae": 1.2171693646907806,
+      "cod_mae": 0.6801769572496414,
+      "empty_mae": 0.04195253599435091
+    },
+    "val": {
+      "loss": 1.1688035467209725,
+      "mae": 0.6199290657043457,
+      "rmse": 1.0572924566268922,
+      "kingfish_mae": 0.6094753527641297,
+      "snapper_mae": 1.1888964557647705,
+      "cod_mae": 0.6787998366355896,
+      "empty_mae": 0.00254458487033844
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "default",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T14:03:55.966952",
+    "mode": "multi-modal",
+    "task": "counting",
+    "train": {
+      "loss": 1.1568752225488423,
+      "mae": 0.6606169474124909,
+      "rmse": 1.051976283788681,
+      "kingfish_mae": 0.6934510207176209,
+      "snapper_mae": 1.2234833312034608,
+      "cod_mae": 0.684874370098114,
+      "empty_mae": 0.040659053586423397
+    },
+    "val": {
+      "loss": 1.177875474238625,
+      "mae": 0.623320665359497,
+      "rmse": 1.0603174924850465,
+      "kingfish_mae": 0.6274898386001587,
+      "snapper_mae": 1.1872311782836915,
+      "cod_mae": 0.6676198697090149,
+      "empty_mae": 0.010941852517426014
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  },
+  {
+    "architecture": "JEPA",
+    "model_type": "default",
+    "dataset": "extreme",
+    "timestamp": "2026-04-01T14:17:49.982212",
+    "mode": "multi-modal",
+    "task": "counting",
+    "train": {
+      "loss": 1.1971194517984987,
+      "mae": 0.6730393213033676,
+      "rmse": 1.0700164818763733,
+      "kingfish_mae": 0.6983996260166169,
+      "snapper_mae": 1.2332983148097991,
+      "cod_mae": 0.718965972661972,
+      "empty_mae": 0.041493366211652755
+    },
+    "val": {
+      "loss": 1.1675299992068455,
+      "mae": 0.6167624139785767,
+      "rmse": 1.0554340982437134,
+      "kingfish_mae": 0.583401038646698,
+      "snapper_mae": 1.1847163677215575,
+      "cod_mae": 0.6953399801254272,
+      "empty_mae": 0.003592269727960229
+    },
+    "multi_train": null,
+    "multi_val": null,
+    "test": null
+  }
+]

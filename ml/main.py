@@ -116,6 +116,7 @@ def main():
     ablation_parser = subparsers.add_parser("ablation", help="Perform SNR ablation study")
     ablation_parser.add_argument("-n", "--epochs", type=int, default=10, help="Number of epochs per model")
     ablation_parser.add_argument("--dataset", required=True, help="Dataset to use")
+    ablation_parser.add_argument("--task", default="presence", choices=["presence", "majority", "counting"], help="Task to perform (default: presence)")
     # Remaining args will be passed to ablation.py
 
     # If no arguments, print help

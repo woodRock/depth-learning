@@ -1409,8 +1409,8 @@ fn model_inference_system(
     if total_fish_in_beam == 0 {
         gt_dist.push(("Empty".to_string(), 1.0));
     } else {
-        for (name, count) in species_counts {
-            gt_dist.push((name, count as f32 / total_fish_in_beam as f32));
+        for (name, count) in &species_counts {
+            gt_dist.push((name.clone(), *count as f32 / total_fish_in_beam as f32));
         }
         gt_dist.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     }
