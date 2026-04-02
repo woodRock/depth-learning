@@ -33,7 +33,7 @@ A high-performance synthetic dataset generator built in **Rust** using the **Bev
 
 ```bash
 # Clone and run
-git clone https://github.com/woodj/depth-learning.git
+git clone https://github.com/woodRock/depth-learning.git
 cd depth-learning
 cargo run --release
 ```
