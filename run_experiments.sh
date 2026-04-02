@@ -5,7 +5,7 @@
 
 SEEDS=(42 123 777 999 2024 1337 555 101 888 1234)
 DATASETS=("easy" "medium" "hard" "extreme")
-MODELS=("jepa" "lewm" "lewm_plus" "decoder" "fusion" "translator" "mae")
+MODELS=("jepa" "lewm" "lewm_plus" "fusion" "translator")
 
 # Default settings
 EPOCHS=30 # Reduced for experiment sweep, adjust as needed
