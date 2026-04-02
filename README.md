@@ -41,15 +41,14 @@ cargo run --release
 ### 2. Python Deep Learning Pipeline
 
 ```bash
-cd ml
-pip install -r requirements.txt
+pip install -e .
 
 # Generate dataset first (see below)
 # Then train
-python3 main.py train lewm --task presence --dataset easy --epochs 80
+depth train lewm --task presence --dataset easy --epochs 80
 
 # Start inference server
-python3 main.py serve
+depth serve
 ```
 
 ---
@@ -152,10 +151,10 @@ Train on Easy → Test on Extreme
 
 ```bash
 # Train JEPA
-python3 main.py train jepa --task presence --dataset extreme --epochs 80 --with-aug
+depth train jepa --task presence --dataset extreme --epochs 80 --with-aug
 
 # Train LeWM
-python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
+depth train lewm --task presence --dataset extreme --epochs 80 --with-aug
 ```
 
 **Expected Performance:**
@@ -167,7 +166,7 @@ python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-
 **Task:** How many fish of each species are present?
 
 ```bash
-python3 main.py train lewm --task counting --dataset extreme --epochs 80 --with-aug
+depth train lewm --task counting --dataset extreme --epochs 80 --with-aug
 ```
 
 **Expected Performance:**
@@ -181,45 +180,43 @@ python3 main.py train lewm --task counting --dataset extreme --epochs 80 --with-
 ### Basic Training (Presence Detection)
 
 ```bash
-cd ml
-
 # Train on Easy dataset
-python3 main.py train lewm --task presence --dataset easy --epochs 80
+depth train lewm --task presence --dataset easy --epochs 80
 
 # Train with augmentation (recommended)
-python3 main.py train lewm --task presence --dataset easy --epochs 80 --with-aug
+depth train lewm --task presence --dataset easy --epochs 80 --with-aug
 
 # Train on EXTREME (best for generalization)
-python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
+depth train lewm --task presence --dataset extreme --epochs 80 --with-aug
 ```
 
 ### Curriculum Learning
 
 ```bash
 # Progressive difficulty training
-python3 main.py train lewm --task presence --dataset easy --epochs 40
-python3 main.py train lewm --task presence --dataset medium --epochs 40
-python3 main.py train lewm --task presence --dataset hard --epochs 40
-python3 main.py train lewm --task presence --dataset extreme --epochs 40
+depth train lewm --task presence --dataset easy --epochs 40
+depth train lewm --task presence --dataset medium --epochs 40
+depth train lewm --task presence --dataset hard --epochs 40
+depth train lewm --task presence --dataset extreme --epochs 40
 ```
 
 ### Available Models
 
 ```bash
 # JEPA (Joint Embedding Predictive Architecture)
-python3 main.py train jepa --task presence --dataset extreme --epochs 80
+depth train jepa --task presence --dataset extreme --epochs 80
 
 # LeWM (LeWorldModel - recommended)
-python3 main.py train lewm --task presence --dataset extreme --epochs 80
+depth train lewm --task presence --dataset extreme --epochs 80
 
 # MAE (Masked Autoencoder - self-supervised pretraining)
-python3 main.py train mae --dataset extreme --epochs 100
+depth train mae --dataset extreme --epochs 100
 
 # Fusion (multimodal visual+acoustic)
-python3 main.py train fusion --dataset extreme --epochs 50
+depth train fusion --dataset extreme --epochs 50
 
 # Decoder (image reconstruction from acoustic)
-python3 main.py train decoder --dataset extreme --epochs 50
+depth train decoder --dataset extreme --epochs 50
 ```
 
 ---
@@ -229,8 +226,7 @@ python3 main.py train decoder --dataset extreme --epochs 50
 ### Start Inference Server
 
 ```bash
-cd ml
-python3 main.py serve
+depth serve
 ```
 
 ### Test in Simulation
@@ -278,18 +274,17 @@ depth-learning/
 │   ├── main.rs              # Bevy simulation
 │   └── bin/
 │       └── generate_dataset.rs  # Headless dataset generator
-├── ml/
+├── depth/
 │   ├── models/
 │   │   ├── jepa.py          # JEPA architecture
 │   │   ├── lewm.py          # LeWorldModel
 │   │   ├── lewm_multilabel.py  # Multi-task LeWM
 │   │   ├── mae.py           # Masked Autoencoder
 │   │   └── ...
-│   ├── train.py             # Unified training script
-│   ├── trainers.py          # Training loops
-│   ├── data.py              # Data loading with augmentation
-│   ├── serve.py             # FastAPI inference server
-│   └── config.py            # Training configurations
+│   ├── cli/                 # CLI commands (train, serve, benchmark…)
+│   ├── core/                # Training logic and trainers
+│   ├── data/                # Data loading with augmentation
+│   └── utils/               # Config, logging, metrics
 ├── dataset/
 │   ├── easy/                # Easy difficulty data
 │   ├── medium/              # Medium difficulty data
@@ -323,7 +318,7 @@ Our **EXTREME mode** breaks depth stratification:
 cargo run --bin generate_dataset -- -o dataset/extreme -n 2000 -d extreme
 
 # 2. Train on EXTREME
-python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
+depth train lewm --task presence --dataset extreme --epochs 80 --with-aug
 
 # 3. Test in simulation (press M to EXTREME)
 cargo run --release
@@ -347,7 +342,7 @@ cargo run --release
 
 ### Simulation doesn't connect to server
 **Problem:** Server not running or wrong port
-**Solution:** Run `python3 main.py serve` first
+**Solution:** Run `depth serve` first
 
 ---
 

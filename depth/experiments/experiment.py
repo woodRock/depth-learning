@@ -98,7 +98,7 @@ class ExperimentRunnerConfig:
     """Configuration for the experiment runner."""
     name: str = "experiment"
     base_dir: str = "experiments"
-    ml_dir: str = "ml"
+    ml_dir: str = "depth"
     results_file: str = "results.json"
     default_epochs: int = 100
     default_patience: int = 15

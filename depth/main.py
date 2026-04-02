@@ -10,15 +10,14 @@ import argparse
 import uvicorn
 from typing import List
 
-# Ensure the 'ml' directory is in the path so we can import modules
-# This is a temporary measure until we structure as a proper package
+# Ensure the 'depth' directory is in the path so we can import modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.logging import setup_logging, get_logger
 
 # Initialize logging
 setup_logging()
-logger = get_logger("ml_cli")
+logger = get_logger("depth_cli")
 
 def cmd_train(args):
     """Route to training logic."""

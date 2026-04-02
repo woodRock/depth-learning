@@ -4,7 +4,7 @@ Command-line interface for training, evaluating, and serving deep learning model
 
 ## Overview
 
-The ML module provides a unified CLI tool (`main.py`) for all machine learning operations:
+The `depth` package provides a unified CLI tool for all machine learning operations:
 
 - **train**: Train models (JEPA, LeWM, LeWM++, MAE, Fusion, Decoder, Translator)
 - **serve**: Start inference server for real-time predictions
@@ -14,17 +14,17 @@ The ML module provides a unified CLI tool (`main.py`) for all machine learning o
 ## Quick Start
 
 ```bash
-cd ml
-pip install -r requirements.txt
+# From the repo root
+pip install -e .
 
 # Train a model
-python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
+depth train lewm --task presence --dataset extreme --epochs 80 --with-aug
 
 # Start inference server
-python3 main.py serve
+depth serve
 
 # Evaluate a model
-python3 main.py evaluate --arch LeWM --dataset extreme --mode Acoustic-only
+depth evaluate --arch LeWM --dataset extreme --mode Acoustic-only
 ```
 
 ## CLI Commands
@@ -34,8 +34,10 @@ python3 main.py evaluate --arch LeWM --dataset extreme --mode Acoustic-only
 Unified training script for all model architectures.
 
 ```bash
-python3 main.py train <model> [options]
+depth train <model> [options]
 ```
+
+
 
 #### Available Models
 
@@ -67,52 +69,52 @@ python3 main.py train <model> [options]
 
 ```bash
 # Train LeWM for presence detection on EXTREME dataset
-python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
+depth train lewm --task presence --dataset extreme --epochs 80 --with-aug
 
 # Train JEPA with transformer encoder for counting
-python3 main.py train jepa --model transformer --task counting --dataset hard --epochs 100
+depth train jepa --model transformer --task counting --dataset hard --epochs 100
 
 # Train LeWM++ with sigmoid regularization
-python3 main.py train lewm_plus --task presence --dataset extreme --epochs 100 --sigreg-weight 0.1
+depth train lewm_plus --task presence --dataset extreme --epochs 100 --sigreg-weight 0.1
 
 # Train MAE for self-supervised pretraining
-python3 main.py train mae --dataset extreme --epochs 100 --mask-ratio 0.75
+depth train mae --dataset extreme --epochs 100 --mask-ratio 0.75
 
 # Train Fusion model
-python3 main.py train fusion --dataset extreme --epochs 50 --lr 1e-4
+depth train fusion --dataset extreme --epochs 50 --lr 1e-4
 
 # Train Decoder for image reconstruction
-python3 main.py train decoder --dataset extreme --epochs 50 --lr 1e-3
+depth train decoder --dataset extreme --epochs 50 --lr 1e-3
 
 # Train with custom early stopping patience
-python3 main.py train lewm --task counting --dataset extreme --epochs 200 --patience 30 --min-delta 0.0001
+depth train lewm --task counting --dataset extreme --epochs 200 --patience 30 --min-delta 0.0001
 ```
 
 #### Model-Specific Options
 
 **JEPA:**
 ```bash
-python3 main.py train jepa --model {conv,transformer,lstm,ast} --task {presence,counting}
+depth train jepa --model {conv,transformer,lstm,ast} --task {presence,counting}
 ```
 
 **LeWM++:**
 ```bash
-python3 main.py train lewm_plus --model {conv,transformer,lstm,ast} --task {presence,counting}
+depth train lewm_plus --model {conv,transformer,lstm,ast} --task {presence,counting}
 ```
 
 **MAE:**
 ```bash
-python3 main.py train mae --mask-ratio 0.75
+depth train mae --mask-ratio 0.75
 ```
 
 **Fusion:**
 ```bash
-python3 main.py train fusion --dropout-prob 0.5
+depth train fusion --dropout-prob 0.5
 ```
 
 **Translator:**
 ```bash
-python3 main.py train translator --d-model 256 --patch-size 16
+depth train translator --d-model 256 --patch-size 16
 ```
 
 ---
@@ -122,7 +124,7 @@ python3 main.py train translator --d-model 256 --patch-size 16
 Start a FastAPI server for real-time predictions. The server loads trained models and provides REST endpoints for the Bevy simulation.
 
 ```bash
-python3 main.py serve [--host HOST] [--port PORT]
+depth serve [--host HOST] [--port PORT]
 ```
 
 #### Options
@@ -136,10 +138,10 @@ python3 main.py serve [--host HOST] [--port PORT]
 
 ```bash
 # Start server on default port
-python3 main.py serve
+depth serve
 
 # Start server on specific host/port
-python3 main.py serve --host 0.0.0.0 --port 8080
+depth serve --host 0.0.0.0 --port 8080
 ```
 
 #### API Endpoints
@@ -168,7 +170,7 @@ For dataset-specific weights, use directory format:
 Evaluate trained models on test datasets. Supports shortcut learning tests by training on one difficulty and testing on another.
 
 ```bash
-python3 main.py evaluate --arch ARCH --dataset DATASET [--mode MODE] [--test-dataset TEST_DATASET]
+depth evaluate --arch ARCH --dataset DATASET [--mode MODE] [--test-dataset TEST_DATASET]
 ```
 
 #### Options
@@ -184,13 +186,13 @@ python3 main.py evaluate --arch ARCH --dataset DATASET [--mode MODE] [--test-dat
 
 ```bash
 # Evaluate LeWM trained on EXTREME
-python3 main.py evaluate --arch LeWM --dataset extreme --mode Acoustic-only
+depth evaluate --arch LeWM --dataset extreme --mode Acoustic-only
 
 # Evaluate JEPA trained on Easy, test on Extreme (shortcut test)
-python3 main.py evaluate --arch JEPA --dataset easy --mode Multi-modal --test-dataset extreme
+depth evaluate --arch JEPA --dataset easy --mode Multi-modal --test-dataset extreme
 
 # Evaluate JEPA with sigmoid regularization
-python3 main.py evaluate --arch JEPA_SigReg --dataset extreme --mode Multi-modal
+depth evaluate --arch JEPA_SigReg --dataset extreme --mode Multi-modal
 ```
 
 #### Shortcut Learning Tests
@@ -199,8 +201,8 @@ Test if models learned depth shortcuts vs. real acoustic features:
 
 ```bash
 # Train on Easy, test on Extreme
-python3 main.py train lewm --task presence --dataset easy --epochs 80
-python3 main.py evaluate --arch LeWM --dataset easy --test-dataset extreme
+depth train lewm --task presence --dataset easy --epochs 80
+depth evaluate --arch LeWM --dataset easy --test-dataset extreme
 
 # Expected results:
 # - 100% on Easy, <50% on Extreme → Model used depth shortcut ❌
@@ -214,7 +216,7 @@ python3 main.py evaluate --arch LeWM --dataset easy --test-dataset extreme
 Run multiple experiments from YAML configuration files.
 
 ```bash
-python3 main.py experiment --config CONFIG
+depth experiment --config CONFIG
 ```
 
 #### Options
@@ -252,10 +254,10 @@ experiments:
 
 ```bash
 # Run all experiments from config
-python3 main.py experiment --config experiments/presence_all.yaml
+depth experiment --config experiments/presence_all.yaml
 
 # Run counting experiments
-python3 main.py experiment --config experiments/counting.yaml
+depth experiment --config experiments/counting.yaml
 ```
 
 ---
@@ -269,44 +271,43 @@ python3 main.py experiment --config experiments/counting.yaml
 cargo run --bin generate_dataset -- -o dataset/extreme -n 2000 -d extreme
 
 # 2. Train model
-cd ml
-python3 main.py train lewm --task presence --dataset extreme --epochs 80 --with-aug
+depth train lewm --task presence --dataset extreme --epochs 80 --with-aug
 
 # 3. Evaluate
-python3 main.py evaluate --arch LeWM --dataset extreme --mode Acoustic-only
+depth evaluate --arch LeWM --dataset extreme --mode Acoustic-only
 
 # 4. Start server for simulation
-python3 main.py serve
+depth serve
 ```
 
 ### Counting Task
 
 ```bash
 # Train LeWM++ for counting (best performance)
-python3 main.py train lewm_plus --task counting --dataset extreme --epochs 100 --with-aug
+depth train lewm_plus --task counting --dataset extreme --epochs 100 --with-aug
 
 # Or train JEPA for counting
-python3 main.py train jepa --task counting --dataset extreme --epochs 100 --with-aug
+depth train jepa --task counting --dataset extreme --epochs 100 --with-aug
 ```
 
 ### Self-Supervised Pretraining
 
 ```bash
 # Pretrain with MAE
-python3 main.py train mae --dataset extreme --epochs 100 --mask-ratio 0.75
+depth train mae --dataset extreme --epochs 100 --mask-ratio 0.75
 
 # Fine-tune with LeWM
-python3 main.py train lewm --task presence --dataset extreme --epochs 50
+depth train lewm --task presence --dataset extreme --epochs 50
 ```
 
 ### Curriculum Learning
 
 ```bash
 # Progressive training through difficulties
-python3 main.py train lewm --task presence --dataset easy --epochs 40
-python3 main.py train lewm --task presence --dataset medium --epochs 40
-python3 main.py train lewm --task presence --dataset hard --epochs 40
-python3 main.py train lewm --task presence --dataset extreme --epochs 40
+depth train lewm --task presence --dataset easy --epochs 40
+depth train lewm --task presence --dataset medium --epochs 40
+depth train lewm --task presence --dataset hard --epochs 40
+depth train lewm --task presence --dataset extreme --epochs 40
 ```
 
 ### Multi-Seed Experiments
@@ -324,7 +325,7 @@ experiments:
 EOF
 
 # Run experiment
-python3 main.py experiment --config experiments/robust_test.yaml
+depth experiment --config experiments/robust_test.yaml
 ```
 
 ---
@@ -332,7 +333,7 @@ python3 main.py experiment --config experiments/robust_test.yaml
 ## Project Structure
 
 ```
-ml/
+depth/
 ├── main.py              # Unified CLI entry point
 ├── cli/
 │   ├── train.py         # Training command
@@ -410,7 +411,7 @@ The CLI integrates with the Rust/Bevy simulation:
 
 1. **Start the server:**
    ```bash
-   python3 main.py serve
+   depth serve
    ```
 
 2. **Run the simulation:**
@@ -428,8 +429,7 @@ The CLI integrates with the Rust/Bevy simulation:
 ## Troubleshooting
 
 ### Server doesn't start
-- Check if port 8000 is already in use
-- Try: `python3 main.py serve --port 8080`
+- Check if port 8000 is already in use: `depth serve --port 8080`
 
 ### Model not found
 - Ensure weights exist in `weights/` directory

@@ -7,46 +7,42 @@ Multi-modal deep learning for fish species classification and counting from acou
 ### Installation
 
 ```bash
-cd ml
-pip install -r requirements.txt
+# From the repo root
+pip install -e .
 ```
 
 ### Training
 
 ```bash
 # Train LeWM++ (best model) for counting
-python -m depth_learning.cli.train lewm_plus --dataset easy --task counting --epochs 100
+depth train lewm_plus --dataset easy --task counting --epochs 100
 
 # Train with experiment runner
-python -m depth_learning.cli.experiment run --config config/experiments/counting_all.yaml
+depth experiment --config experiments/counting_all.yaml
 ```
 
 ### Evaluation
 
 ```bash
-# Evaluate all trained models
-python -m depth_learning.cli.evaluate --all
-
-# Generate results table
-python -m depth_learning.cli.table --task counting
+# Evaluate a trained model
+depth evaluate --arch LeWM --dataset extreme --mode Acoustic-only
 ```
 
 ### Server
 
 ```bash
 # Start inference server
-python -m depth_learning.cli.serve --host 127.0.0.1 --port 8000
+depth serve --host 127.0.0.1 --port 8000
 ```
 
 ## Architecture
 
 ```
-depth_learning/
+depth/
 ├── cli/           # Command-line interfaces
 ├── core/          # Core business logic
 ├── data/          # Data loading & processing
 ├── models/        # Neural network architectures
-├── server/        # API server
 └── utils/         # Utilities
 ```
 
@@ -74,7 +70,7 @@ sigreg_weight: 0.1
 
 Run with:
 ```bash
-python -m depth_learning.cli.experiment run --config config/experiments/counting.yaml
+depth experiment --config experiments/counting.yaml
 ```
 
 ## Development
@@ -102,20 +98,13 @@ mypy .
 ## API Usage
 
 ```python
-from depth_learning import Trainer, Evaluator
-from depth_learning.models import LeWMPlus
+from depth.models import LeWMPlus
+from depth.utils.config import TrainingConfig
+from depth.core import get_trainer
 
-# Training
-trainer = Trainer.from_config("config.yaml")
-results = trainer.train()
-
-# Evaluation
-evaluator = Evaluator(results)
-metrics = evaluator.compute_metrics()
-
-# Export
-from depth_learning.utils import export_latex_table
-export_latex_table(metrics, "results.tex")
+config = TrainingConfig(architecture="lewm_plus", dataset="extreme", task="presence")
+trainer = get_trainer(config)
+trainer.train()
 ```
 
 ## Citation
