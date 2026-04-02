@@ -46,7 +46,7 @@ class JEPATrainer(BaseTrainer):
             )
         elif self.config.model_type == "ast":
             ac_encoder = AcousticAST(
-                d_model=self.config.embed_dim,
+                embed_dim=self.config.embed_dim,
                 num_classes=self.config.embed_dim
             )
         else:  # transformer (default)

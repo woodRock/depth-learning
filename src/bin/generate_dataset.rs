@@ -684,3 +684,260 @@ fn main() {
     }
     println!("\n✅ Bit-Fidelity dataset generation complete!");
 }
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // Species — name()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_species_name_kingfish() {
+        assert_eq!(Species::Kingfish.name(), "Kingfish");
+    }
+
+    #[test]
+    fn test_species_name_snapper() {
+        assert_eq!(Species::Snapper.name(), "Snapper");
+    }
+
+    #[test]
+    fn test_species_name_cod() {
+        assert_eq!(Species::Cod.name(), "Cod");
+    }
+
+    #[test]
+    fn test_species_name_empty() {
+        assert_eq!(Species::Empty.name(), "Empty");
+    }
+
+    // -----------------------------------------------------------------------
+    // Species — preferred_depth_range()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_depth_ranges_are_ordered_min_lt_max() {
+        for s in [Species::Kingfish, Species::Snapper, Species::Cod] {
+            let (min, max) = s.preferred_depth_range();
+            assert!(min < max, "{:?}: min={} >= max={}", s, min, max);
+        }
+    }
+
+    #[test]
+    fn test_kingfish_is_deeper_than_cod() {
+        let (kf_min, _) = Species::Kingfish.preferred_depth_range();
+        let (_, cod_max) = Species::Cod.preferred_depth_range();
+        // Kingfish min depth >= Cod max depth (ranges stratify by depth)
+        assert!(kf_min >= cod_max,
+            "Kingfish should be at least as deep as Cod (kf_min={}, cod_max={})", kf_min, cod_max);
+    }
+
+    #[test]
+    fn test_empty_depth_range_is_zero() {
+        let (min, max) = Species::Empty.preferred_depth_range();
+        assert_eq!(min, 0.0);
+        assert_eq!(max, 0.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // Species — scale()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_kingfish_is_largest() {
+        assert!(Species::Kingfish.scale() > Species::Snapper.scale());
+        assert!(Species::Kingfish.scale() > Species::Cod.scale());
+    }
+
+    #[test]
+    fn test_empty_has_zero_scale() {
+        assert_eq!(Species::Empty.scale(), 0.0);
+    }
+
+    #[test]
+    fn test_all_non_empty_scales_positive() {
+        for s in [Species::Kingfish, Species::Snapper, Species::Cod] {
+            assert!(s.scale() > 0.0, "{:?} scale should be positive", s);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Species — speed()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_kingfish_is_fastest() {
+        assert!(Species::Kingfish.speed() > Species::Snapper.speed());
+        assert!(Species::Kingfish.speed() > Species::Cod.speed());
+    }
+
+    #[test]
+    fn test_empty_has_zero_speed() {
+        assert_eq!(Species::Empty.speed(), 0.0);
+    }
+
+    #[test]
+    fn test_all_non_empty_speeds_positive() {
+        for s in [Species::Kingfish, Species::Snapper, Species::Cod] {
+            assert!(s.speed() > 0.0, "{:?} speed should be positive", s);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Species — target_strength()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_target_strength_returns_three_values() {
+        let (a, b, c) = Species::Kingfish.target_strength();
+        // All should be negative dB values (acoustic target strength)
+        assert!(a < 0.0 && b < 0.0 && c < 0.0);
+    }
+
+    #[test]
+    fn test_empty_has_very_low_target_strength() {
+        let (a, b, c) = Species::Empty.target_strength();
+        assert!(a <= -90.0 && b <= -90.0 && c <= -90.0,
+            "Empty target strength should be very low (got {}, {}, {})", a, b, c);
+    }
+
+    // -----------------------------------------------------------------------
+    // Species — color()
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_all_species_have_unique_colors() {
+        let colors = [
+            Species::Kingfish.color(),
+            Species::Snapper.color(),
+            Species::Cod.color(),
+        ];
+        // Check no two are identical
+        assert_ne!(colors[0], colors[1]);
+        assert_ne!(colors[0], colors[2]);
+        assert_ne!(colors[1], colors[2]);
+    }
+
+    #[test]
+    fn test_empty_is_black() {
+        assert_eq!(Species::Empty.color(), [0u8, 0, 0]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Acoustic physics helpers (inline, matching echosounder_improvements.rs)
+    // -----------------------------------------------------------------------
+
+    fn gaussian_beam_response(angle: f32, half_angle: f32) -> f32 {
+        let normalized = angle / half_angle;
+        (-2.77 * normalized * normalized).exp()
+    }
+
+    fn absorption_coefficient(frequency_khz: f32, distance: f32) -> f32 {
+        let coeff: f32 = match frequency_khz as i32 {
+            38 => 0.008,
+            120 => 0.04,
+            200 => 0.08,
+            _ => 0.05,
+        };
+        (-coeff * distance).exp()
+    }
+
+    #[test]
+    fn test_beam_response_is_one_at_zero_angle() {
+        let r = gaussian_beam_response(0.0, 6.0_f32.to_radians());
+        assert!((r - 1.0).abs() < 1e-6, "beam at angle=0 should be 1.0, got {}", r);
+    }
+
+    #[test]
+    fn test_beam_response_decreases_with_angle() {
+        let half = 6.0_f32.to_radians();
+        let r_near = gaussian_beam_response(1.0_f32.to_radians(), half);
+        let r_far = gaussian_beam_response(5.0_f32.to_radians(), half);
+        assert!(r_near > r_far, "beam response should decrease with angle");
+    }
+
+    #[test]
+    fn test_beam_response_at_half_angle() {
+        let half = 6.0_f32.to_radians();
+        let r = gaussian_beam_response(half, half);
+        // At the half-angle: exp(-2.77) ≈ 0.063
+        assert!(r > 0.0 && r < 0.5, "beam at half-angle should be in (0, 0.5), got {}", r);
+    }
+
+    #[test]
+    fn test_beam_response_in_unit_range() {
+        let half = 6.0_f32.to_radians();
+        for deg in 0..=15 {
+            let r = gaussian_beam_response((deg as f32).to_radians(), half);
+            assert!(r >= 0.0 && r <= 1.0, "beam response out of [0,1] at {}°: {}", deg, r);
+        }
+    }
+
+    #[test]
+    fn test_absorption_at_zero_distance_is_one() {
+        for freq in [38.0f32, 120.0, 200.0] {
+            let a = absorption_coefficient(freq, 0.0);
+            assert!((a - 1.0).abs() < 1e-6,
+                "absorption at distance=0 should be 1.0 for {}kHz, got {}", freq, a);
+        }
+    }
+
+    #[test]
+    fn test_absorption_decreases_with_distance() {
+        for freq in [38.0f32, 120.0, 200.0] {
+            let a_near = absorption_coefficient(freq, 1.0);
+            let a_far = absorption_coefficient(freq, 10.0);
+            assert!(a_near > a_far,
+                "absorption should decrease with distance for {}kHz", freq);
+        }
+    }
+
+    #[test]
+    fn test_higher_frequency_more_absorbed() {
+        let dist = 5.0;
+        let a_38 = absorption_coefficient(38.0, dist);
+        let a_200 = absorption_coefficient(200.0, dist);
+        assert!(a_38 > a_200,
+            "38kHz should be less absorbed than 200kHz at same distance (got {:.4} vs {:.4})",
+            a_38, a_200);
+    }
+
+    #[test]
+    fn test_absorption_unknown_freq_uses_default() {
+        let a_unknown = absorption_coefficient(50.0, 5.0);
+        let a_default = (-0.05 * 5.0_f32).exp();
+        assert!((a_unknown - a_default).abs() < 1e-6);
+    }
+
+    // -----------------------------------------------------------------------
+    // Constants
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_ping_history_len_is_32() {
+        assert_eq!(PING_HISTORY_LEN, 32);
+    }
+
+    #[test]
+    fn test_echogram_height_is_256() {
+        assert_eq!(ECHOGRAM_HEIGHT, 256);
+    }
+
+    #[test]
+    fn test_tank_size_positive() {
+        assert!(TANK_SIZE.x > 0.0);
+        assert!(TANK_SIZE.y > 0.0);
+        assert!(TANK_SIZE.z > 0.0);
+    }
+
+    #[test]
+    fn test_fish_count_nonzero() {
+        assert!(FISH_COUNT > 0);
+    }
+}

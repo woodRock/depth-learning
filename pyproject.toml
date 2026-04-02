@@ -37,3 +37,8 @@ depth = "depth.main:main"
 
 [tool.hatchling.build.targets.wheel]
 packages = ["depth"]
+
+[tool.pytest.ini_options]
+pythonpath = ["depth"]
+testpaths = ["tests"]
+addopts = "-v"

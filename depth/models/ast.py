@@ -19,27 +19,27 @@ class AcousticAST(nn.Module):
     """
     Audio Spectrogram Transformer tailored for acoustic data.
     """
-    def __init__(self, d_model=256, nhead=8, num_layers=4, num_classes=4):
+    def __init__(self, embed_dim=256, nhead=8, num_layers=4, num_classes=4):
         super().__init__()
         
         # 32x256 image -> 8x16 patches -> (4 * 16) = 64 patches
-        self.patch_embed = PatchEmbedding(img_size=(32, 256), patch_size=(8, 16), in_channels=3, d_model=d_model)
+        self.patch_embed = PatchEmbedding(img_size=(32, 256), patch_size=(8, 16), in_channels=3, d_model=embed_dim)
         
-        self.cls_token = nn.Parameter(torch.zeros(1, 1, d_model))
-        self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.num_patches + 1, d_model))
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, self.patch_embed.num_patches + 1, embed_dim))
         
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model=d_model, 
+            d_model=embed_dim, 
             nhead=nhead, 
-            dim_feedforward=d_model*4, 
+            dim_feedforward=embed_dim*4, 
             batch_first=True,
             dropout=0.1
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
         
         self.classifier = nn.Sequential(
-            nn.LayerNorm(d_model),
-            nn.Linear(d_model, num_classes)
+            nn.LayerNorm(embed_dim),
+            nn.Linear(embed_dim, num_classes)
         )
 
     def forward(self, x):
