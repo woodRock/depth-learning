@@ -30,19 +30,11 @@ for dataset in "${DATASETS[@]}"; do
                 lewm_plus)
                     ts -G 1 depth train lewm_plus --model transformer --dataset "$dataset" --seed "$seed" --epochs "$EPOCHS" --task "$TASK" --with-aug
                     ;;
-                decoder)
-                    # Decoder doesn't take a --task argument (image reconstruction only)
-                    ts -G 1 depth train decoder --dataset "$dataset" --seed "$seed" --epochs "$EPOCHS" --with-aug
-                    ;;
                 fusion)
                     ts -G 1 depth train fusion --dataset "$dataset" --seed "$seed" --epochs "$EPOCHS" --task "$TASK" --with-aug
                     ;;
                 translator)
                     ts -G 1 depth train translator --dataset "$dataset" --seed "$seed" --epochs "$EPOCHS" --task "$TASK" --with-aug
-                    ;;
-                mae)
-                    # MAE doesn't take a --task argument (self-supervised only)
-                    ts -G 1 depth train mae --dataset "$dataset" --seed "$seed" --epochs "$EPOCHS" --with-aug
                     ;;
             esac
         done
