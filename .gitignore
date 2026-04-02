@@ -16,22 +16,23 @@
 *~
 
 # Model weights (large binary files)
-ml/weights/*.pth
-ml/weights/*/*.pth
+depth/weights/*.pth
+depth/weights/*/*.pth
+depth/weights/**/
 weights/*.pth
 weights/*/*.pth
 *.onnx
-!ml/weights/.gitkeep
+!depth/weights/.gitkeep
 
 # WandB logs
 ml/wandb/
 wandb/
 
 # Python artifacts
-ml/__pycache__/
-ml/*.pyc
-ml/venv/
-ml/.venv/
+depth/__pycache__/
+depth/*.pyc
+depth/venv/
+depth/.venv/
 *.egg-info/
 .eggs/
 
@@ -60,7 +61,7 @@ tmp/
 temp/
 *.tmp
 
-ml/wandb/
-ml/weights/
-ml/__pycache__/
-ml/*/__pycache__/
+depth/wandb/
+depth/weights/**
+depth/__pycache__/
+depth/*/__pycache__/
