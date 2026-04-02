@@ -91,6 +91,7 @@ class DecoderConfig:
     learning_rate: float = 1e-3
     weights_dir: str = "weights"
     wandb_project: str = "depth-learning"
+    seed: int = 42
 
 
 @dataclass
@@ -106,6 +107,7 @@ class FusionConfig:
     task: str = "presence"  # "presence" or "counting"
     weights_dir: str = "weights"
     wandb_project: str = "depth-learning"
+    seed: int = 42
 
 
 @dataclass
@@ -124,6 +126,7 @@ class TranslatorConfig:
     weights_dir: str = "weights"
     wandb_entity: str = "victoria-university-of-wellington"
     wandb_project: str = "depth-learning"
+    seed: int = 42
 
 
 @dataclass
@@ -138,6 +141,7 @@ class MAEConfig:
     with_aug: bool = False
     weights_dir: str = "weights"
     wandb_project: str = "depth-learning"
+    seed: int = 42
 
 
 def add_common_args(parser: argparse.ArgumentParser) -> None:

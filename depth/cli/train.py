@@ -6,6 +6,8 @@ Unified training script for all depth learning models.
 import os
 import sys
 import argparse
+import random
+import numpy as np
 import torch
 import wandb
 from typing import Optional, Any
@@ -32,6 +34,18 @@ load_dotenv()
 # Initialize logging
 setup_logging()
 logger = get_logger(__name__)
+
+
+def set_seed(seed: int) -> None:
+    """Set random seed for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    # Ensure deterministic behavior in CuDNN
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    os.environ['PYTHONHASHSEED'] = str(seed)
 
 
 def setup_wandb(config: Any, job_type: str, architecture: str, task: str) -> None:
@@ -71,6 +85,10 @@ def _get_dataset_path(dataset_name: str) -> str:
 
 def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
     """Generic training runner."""
+    # Set seed at the very beginning of the experiment
+    seed = getattr(config, 'seed', 42)
+    set_seed(seed)
+    
     device = _get_device()
     
     # Set weights directory
@@ -79,9 +97,9 @@ def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
     elif not hasattr(config, 'weights_dir') or config.weights_dir == "weights":
         # Default specialized directory
         model_name = args.command
-        config.weights_dir = f"weights/{model_name}_{getattr(config, 'dataset', 'default')}"
+        config.weights_dir = f"weights/{model_name}_{getattr(config, 'dataset', 'default')}_seed{seed}"
 
-    print(f"--- Starting {args.command.upper()} Training on {device} ---")
+    print(f"--- Starting {args.command.upper()} Training on {device} (Seed: {seed}) ---")
     task = getattr(args, 'task', 'presence')
     setup_wandb(config, job_type=job_type, architecture=args.command, task=task)
 
@@ -101,14 +119,17 @@ def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
         train_size = int(0.9 * len(full_ds))
         train_ds = Subset(full_ds, range(train_size))
         val_ds = Subset(full_ds, range(train_size, len(full_ds)))
-        train_loader = DataLoader(train_ds, batch_size=config.batch_size, shuffle=True)
+        # Generator for reproducibility in DataLoader
+        g = torch.Generator()
+        g.manual_seed(seed)
+        train_loader = DataLoader(train_ds, batch_size=config.batch_size, shuffle=True, generator=g)
         val_loader = DataLoader(val_ds, batch_size=config.batch_size, shuffle=False)
     else:
         train_loader, val_loader = create_data_loaders(
             dataset_path,
             transform=transform,
             batch_size=config.batch_size,
-            seed=getattr(args, 'seed', 42),
+            seed=seed,
             task=task,
             snr_db=getattr(config, 'snr_db', None)
         )
@@ -221,27 +242,28 @@ def main() -> None:
     elif args.command == "decoder":
         config = DecoderConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
-            batch_size=args.batch_size, learning_rate=args.lr
+            batch_size=args.batch_size, learning_rate=args.lr, seed=args.seed
         )
         job_type = "decoder-reconstruction"
     elif args.command == "fusion":
         config = FusionConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
             batch_size=args.batch_size, learning_rate=args.lr, dropout_prob=args.dropout_prob,
-            task=args.task
+            task=args.task, seed=args.seed
         )
         job_type = f"fusion-{args.task}"
     elif args.command == "translator":
         config = TranslatorConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
             batch_size=args.batch_size, learning_rate=args.lr, d_model=args.d_model,
-            patch_size=args.patch_size, task=args.task
+            patch_size=args.patch_size, task=args.task, seed=args.seed
         )
         job_type = f"translator-{args.task}"
     elif args.command == "mae":
         config = MAEConfig(
             dataset=args.dataset, with_aug=args.with_aug, epochs=args.epochs,
-            batch_size=args.batch_size, learning_rate=args.lr, mask_ratio=args.mask_ratio
+            batch_size=args.batch_size, learning_rate=args.lr, mask_ratio=args.mask_ratio,
+            seed=args.seed
         )
         job_type = "mae-pretrain"
     
