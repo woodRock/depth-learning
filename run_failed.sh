@@ -11,9 +11,9 @@ echo "Queuing failed experiments from failed.csv"
 seed_index=0
 
 # Skip header row with tail -n +2
-while IFS=',' read -r name state created runtime task _ _ _ _ dataset architecture epochs _; do
+while IFS=',' read -r name state created runtime exp_task _ _ _ _ dataset architecture epochs _; do
     # Strip surrounding quotes
-    task="${task//\"/}"
+    exp_task="${exp_task//\"/}"
     dataset="${dataset//\"/}"
     architecture="${architecture//\"/}"
     epochs="${epochs//\"/}"
@@ -23,19 +23,19 @@ while IFS=',' read -r name state created runtime task _ _ _ _ dataset architectu
 
     case $architecture in
         jepa)
-            task -G 1 -d "$directory" depth train jepa --model transformer --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$task" --with-aug
+            task -G 1 -d "$directory" depth train jepa --model transformer --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$exp_task" --with-aug
             ;;
         lewm)
-            task -G 1 -d "$directory" depth train lewm --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$task" --with-aug
+            task -G 1 -d "$directory" depth train lewm --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$exp_task" --with-aug
             ;;
         lewm_plus)
-            task -G 1 -d "$directory" depth train lewm_plus --model transformer --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$task" --with-aug
+            task -G 1 -d "$directory" depth train lewm_plus --model transformer --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$exp_task" --with-aug
             ;;
         fusion)
-            task -G 1 -d "$directory" depth train fusion --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$task" --with-aug
+            task -G 1 -d "$directory" depth train fusion --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$exp_task" --with-aug
             ;;
         translator)
-            task -G 1 -d "$directory" depth train translator --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$task" --with-aug
+            task -G 1 -d "$directory" depth train translator --dataset "$dataset" --seed "$seed" --epochs "$epochs" --task "$exp_task" --with-aug
             ;;
         *)
             echo "Unknown architecture: $architecture (skipping $name)"
