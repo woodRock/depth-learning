@@ -11,7 +11,7 @@ echo "Queuing failed experiments from failed.csv"
 seed_index=0
 
 # Skip header row with tail -n +2
-while IFS=',' read -r -u 3 name state created runtime exp_task _ _ _ _ dataset architecture epochs _; do
+while IFS=',' read -r -u 3 name state created runtime exp_task _ _ _ _ dataset architecture epochs _ || [[ -n "$name" ]]; do
     # Strip surrounding quotes
     exp_task="${exp_task//\"/}"
     dataset="${dataset//\"/}"

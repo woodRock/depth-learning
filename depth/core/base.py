@@ -134,6 +134,8 @@ class BaseTrainer(ABC):
         # Save final results to results.json
         if best_metrics:
             print(f"\n✓ Training complete. Best validation score: {best_score:.4f} at epoch {best_epoch + 1}")
+            # Log best metrics to wandb so they are queryable without wandb reconstruction
+            self._log_best_metrics(best_metrics, best_multi_modal, best_epoch)
             # Save results with both primary and multi-modal metrics
             self._record_final_results(best_metrics, best_multi_modal)
 
@@ -324,6 +326,31 @@ class BaseTrainer(ABC):
             if "last_target" in val_metrics and val_metrics["last_target"] is not None:
                 target_img = val_metrics["last_target"].permute(1, 2, 0).numpy()
                 log_dict["ground_truth"] = wandb.Image(target_img, caption="Ground truth visual")
+
+        wandb.log(log_dict)
+
+    def _log_best_metrics(
+        self,
+        best_metrics: Dict[str, Dict[str, float]],
+        best_multi_modal: Optional[Dict[str, Dict[str, float]]],
+        best_epoch: int,
+    ) -> None:
+        """Log best metrics to wandb with best_ prefix.
+
+        Called once at the end of training so the best epoch's metrics are
+        directly queryable in wandb without manual reconstruction.
+        """
+        log_dict = {"best_epoch": best_epoch + 1}
+
+        for split, metrics in best_metrics.items():
+            for k, v in metrics.items():
+                log_dict[f"best_{split}_{k}"] = v
+
+        if best_multi_modal:
+            for split, metrics in best_multi_modal.items():
+                if metrics:
+                    for k, v in metrics.items():
+                        log_dict[f"best_multi_{split}_{k}"] = v
 
         wandb.log(log_dict)
 
