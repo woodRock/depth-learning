@@ -18,6 +18,7 @@ col_task=-1
 col_dataset=-1
 col_architecture=-1
 col_epochs=-1
+col_seed=-1
 
 for i in "${!header_cols[@]}"; do
     col="${header_cols[$i]//\"/}"
@@ -26,6 +27,7 @@ for i in "${!header_cols[@]}"; do
         dataset)      col_dataset=$i ;;
         architecture) col_architecture=$i ;;
         epochs)       col_epochs=$i ;;
+        seed)         col_seed=$i ;;
     esac
 done
 
@@ -44,7 +46,11 @@ while IFS=',' read -r -u 3 -a row || [[ ${#row[@]} -gt 0 ]]; do
     # Skip empty rows
     [[ -z "$exp_task" && -z "$dataset" && -z "$architecture" ]] && continue
 
-    seed="${SEEDS[$seed_index % ${#SEEDS[@]}]}"
+    if [[ $col_seed -ne -1 && -n "${row[$col_seed]//\"/}" ]]; then
+        seed="${row[$col_seed]//\"/}"
+    else
+        seed="${SEEDS[$seed_index % ${#SEEDS[@]}]}"
+    fi
     ((seed_index++))
 
     case $architecture in
