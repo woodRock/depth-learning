@@ -5,7 +5,7 @@
 
 SEEDS=(42 123 777 999 2024 1337 555 101 888 1234)
 DATASETS=("easy" "medium" "hard" "extreme")
-MODELS=("jepa" "lewm" "lewm_plus" "fusion" "translator")
+MODELS=("jepa" "lewm" "lewm_plus" "fusion" "translator" "vit_jepa")
 
 # Default settings
 EPOCHS=30 # Reduced for experiment sweep, adjust as needed
@@ -36,6 +36,10 @@ for dataset in "${DATASETS[@]}"; do
                     ;;
                 translator)
                     task -G 1 -d "$directory" depth train translator --dataset "$dataset" --seed "$seed" --epochs "$EPOCHS" --task "$TASK" --with-aug
+                    ;;
+                vit_jepa)
+                    # Pretrain ViT for 50 epochs then train JEPA for $EPOCHS epochs
+                    task -G 1 -d "$directory" depth train vit_jepa --model transformer --dataset "$dataset" --seed "$seed" --epochs "$EPOCHS" --task "$TASK" --with-aug --vit-pretrain-epochs 50
                     ;;
             esac
         done

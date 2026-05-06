@@ -21,7 +21,7 @@ class TrainingConfig:
     weight_decay: float = 0.05
 
     # Dataset settings
-    dataset: Literal["easy", "medium", "hard", "extreme"] = "easy"
+    dataset: Literal["easy", "medium", "hard", "extreme", "real_data"] = "easy"
     task: str = "presence"
     n_chunks: int = 10
 
@@ -51,6 +51,10 @@ class TrainingConfig:
     # Ablation settings
     snr_db: Optional[float] = None
 
+    # ViT-JEPA specific
+    vit_pretrain_epochs: int = 50
+    vit_pretrain_path: Optional[str] = None
+
     # Paths
     weights_dir: str = "weights"
     
@@ -77,14 +81,16 @@ class TrainingConfig:
             early_stop_patience=getattr(args, 'patience', 15),
             early_stop_min_delta=getattr(args, 'min_delta', 0.001),
             snr_db=getattr(args, 'snr_db', None),
+            vit_pretrain_epochs=getattr(args, 'vit_pretrain_epochs', 50),
+            vit_pretrain_path=getattr(args, 'vit_pretrain_path', None),
         )
 
 
 @dataclass
 class DecoderConfig:
     """Configuration for decoder training."""
-    
-    dataset: Literal["easy", "medium", "hard"] = "easy"
+
+    dataset: Literal["easy", "medium", "hard", "extreme", "real_data"] = "easy"
     with_aug: bool = False
     epochs: int = 50
     batch_size: int = 16
@@ -102,7 +108,7 @@ class FusionConfig:
     batch_size: int = 32
     learning_rate: float = 1e-4
     dropout_prob: float = 0.5
-    dataset: Literal["easy", "medium", "hard"] = "easy"
+    dataset: Literal["easy", "medium", "hard", "extreme", "real_data"] = "easy"
     with_aug: bool = False
     task: str = "presence"  # "presence" or "counting"
     weights_dir: str = "weights"
@@ -117,7 +123,7 @@ class TranslatorConfig:
     epochs: int = 100
     batch_size: int = 16
     learning_rate: float = 1e-4
-    dataset: Literal["easy", "medium", "hard"] = "easy"
+    dataset: Literal["easy", "medium", "hard", "extreme", "real_data"] = "easy"
     with_aug: bool = False
     d_model: int = 256
     patch_size: int = 16
@@ -132,12 +138,12 @@ class TranslatorConfig:
 @dataclass
 class MAEConfig:
     """Configuration for masked autoencoder training."""
-    
+
     epochs: int = 100
     batch_size: int = 64
     learning_rate: float = 1e-3
     mask_ratio: float = 0.75
-    dataset: Literal["easy", "medium", "hard"] = "easy"
+    dataset: Literal["easy", "medium", "hard", "extreme", "real_data"] = "easy"
     with_aug: bool = False
     weights_dir: str = "weights"
     wandb_project: str = "depth-learning"
@@ -150,7 +156,7 @@ def add_common_args(parser: argparse.ArgumentParser) -> None:
         "--dataset",
         type=str,
         default="easy",
-        choices=["easy", "medium", "hard", "extreme"],
+        choices=["easy", "medium", "hard", "extreme", "real_data"],
         help="Dataset difficulty level (default: easy)"
     )
     parser.add_argument(

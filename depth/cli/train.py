@@ -134,6 +134,16 @@ def run_training(args: argparse.Namespace, config: Any, job_type: str) -> None:
             snr_db=getattr(config, 'snr_db', None)
         )
 
+    # For ViT-JEPA: pretrain the ViT encoder before building the main model
+    if args.command == "vit_jepa":
+        pretrain_path = getattr(args, 'vit_pretrain_path', None)
+        if not pretrain_path or not os.path.exists(pretrain_path):
+            from core.vit_jepa_trainer import ViTPretrainTrainer
+            vit_pretrain_epochs = getattr(args, 'vit_pretrain_epochs', 50)
+            pretrain_trainer = ViTPretrainTrainer(config, device)
+            pretrain_path = pretrain_trainer.pretrain(train_loader, epochs=vit_pretrain_epochs)
+        config.vit_pretrain_path = pretrain_path
+
     # Get trainer and setup optimizer
     trainer = get_trainer(config, device)
     trainer.model = trainer.build_model() # Some trainers use task inside build_model, others don't
@@ -223,6 +233,25 @@ def main() -> None:
     # MAE is self-supervised (reconstruction), no task flag needed
     add_common_args(mae_parser)
 
+    # ViT-JEPA
+    vit_jepa_parser = subparsers.add_parser(
+        "vit_jepa",
+        help="Pretrain ViT on visual frames (MAE, no labels), then train JEPA with ViT teacher"
+    )
+    vit_jepa_parser.add_argument("--model", type=str, default="transformer",
+                                 choices=["conv", "transformer", "lstm", "ast"])
+    vit_jepa_parser.add_argument("--epochs", type=int, default=80)
+    vit_jepa_parser.add_argument("--lr", type=float, default=3e-4)
+    vit_jepa_parser.add_argument("--batch-size", type=int, default=32)
+    vit_jepa_parser.add_argument("--weight-decay", type=float, default=0.05)
+    vit_jepa_parser.add_argument("--task", type=str, default="presence",
+                                 choices=["presence", "single_label", "counting"])
+    vit_jepa_parser.add_argument("--vit-pretrain-epochs", type=int, default=50,
+                                 help="MAE pretraining epochs for ViT (default: 50)")
+    vit_jepa_parser.add_argument("--vit-pretrain-path", type=str, default=None,
+                                 help="Path to existing pretrained ViT weights (skips pretraining)")
+    add_common_args(vit_jepa_parser)
+
     args = parser.parse_args()
     if args.command is None:
         parser.print_help()
@@ -266,7 +295,10 @@ def main() -> None:
             seed=args.seed
         )
         job_type = "mae-pretrain"
-    
+    elif args.command == "vit_jepa":
+        config = TrainingConfig.from_args(args)
+        job_type = f"vit-jepa-{config.model_type}-{args.task}"
+
     run_training(args, config, job_type)
 
 

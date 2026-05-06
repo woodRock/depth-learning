@@ -53,6 +53,9 @@ def get_trainer(config: Any, device: torch.device) -> "BaseTrainer":
         return TranslatorTrainer(config, device)
     elif architecture == "mae":
         return MAETrainer(config, device)
+    elif architecture == "vit_jepa":
+        from .vit_jepa_trainer import ViTJEPATrainer
+        return ViTJEPATrainer(config, device)
     else:
         # Default to JEPA trainer (transformer, conv, lstm, ast)
         return JEPATrainer(config, device)

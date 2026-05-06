@@ -165,14 +165,24 @@ class FishDataset(Dataset):
                 # species_counts are cumulative detections across 32 pings
                 # Estimate actual fish count by dividing by ping count and rounding
                 PING_COUNT = 32  # Number of pings per frame
-                
+
                 if "species_counts" in meta:
                     counts = meta["species_counts"]
                     count_tensor = torch.zeros(self.NUM_CLASSES, dtype=torch.float32)
                     for species_name, cumulative_count in counts.items():
                         label_idx = self.SPECIES_MAP.get(species_name, 3)
-                        # Estimate: cumulative / pings, rounded to nearest integer
-                        estimated_count = round(cumulative_count / PING_COUNT)
+                        
+                        # Check if this is real_data (counts already in 0-10 range)
+                        # Real data has "source": "NOAA_REAL" and low counts (< 20)
+                        is_real_data = meta.get("source") == "NOAA_REAL" and cumulative_count < 20
+                        
+                        if is_real_data:
+                            # Real data: counts are already actual fish counts
+                            estimated_count = cumulative_count
+                        else:
+                            # Synthetic data: counts are cumulative across pings
+                            estimated_count = round(cumulative_count / PING_COUNT)
+                        
                         count_tensor[label_idx] = float(estimated_count)
                     label_tensor = count_tensor
                 elif "species_present" in meta:
